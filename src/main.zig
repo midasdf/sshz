@@ -1,5 +1,7 @@
 const std = @import("std");
+const zz = @import("zigzag");
 const meta_mod = @import("meta");
+const app = @import("app");
 
 const version = "0.1.0";
 
@@ -31,12 +33,8 @@ pub fn main() !void {
         return;
     }
 
-    // sshz — launch TUI (TODO)
-    const file = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
-    var buf: [256]u8 = undefined;
-    var w = file.writer(&buf);
-    try w.interface.print("SSHZ v{s} — TUI coming soon\n", .{version});
-    try w.interface.flush();
+    // sshz — launch TUI
+    try launchTui(allocator);
 }
 
 fn printUsage() void {
@@ -55,6 +53,17 @@ fn printUsage() void {
         \\
     , .{}) catch {};
     w.interface.flush() catch {};
+}
+
+fn launchTui(allocator: std.mem.Allocator) !void {
+    var program = try zz.Program(app.Model).init(allocator);
+    defer program.deinit();
+    try program.run();
+
+    // After TUI exits, check if we should connect
+    if (program.model.connect_host) |host_name| {
+        try directConnect(allocator, host_name, &.{});
+    }
 }
 
 fn directConnect(allocator: std.mem.Allocator, host_name: []const u8, extra_args: []const [:0]u8) !void {

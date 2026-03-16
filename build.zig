@@ -8,8 +8,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    const zigzag_mod = zigzag_dep.module("zigzag");
 
-    // Source modules (shared between exe and tests)
+    // Source modules
     const ssh_config_mod = b.createModule(.{
         .root_source_file = b.path("src/ssh_config.zig"),
         .target = target,
@@ -28,6 +29,23 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const checker_mod = b.createModule(.{
+        .root_source_file = b.path("src/checker.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const app_mod = b.createModule(.{
+        .root_source_file = b.path("src/app.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    app_mod.addImport("zigzag", zigzag_mod);
+    app_mod.addImport("ssh_config", ssh_config_mod);
+    app_mod.addImport("meta", meta_mod);
+    app_mod.addImport("utils", utils_mod);
+    app_mod.addImport("checker", checker_mod);
+
     // Main executable
     const exe_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -35,10 +53,12 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
         .strip = if (optimize != .Debug) true else null,
     });
-    exe_mod.addImport("zigzag", zigzag_dep.module("zigzag"));
+    exe_mod.addImport("zigzag", zigzag_mod);
     exe_mod.addImport("ssh_config", ssh_config_mod);
     exe_mod.addImport("meta", meta_mod);
     exe_mod.addImport("utils", utils_mod);
+    exe_mod.addImport("checker", checker_mod);
+    exe_mod.addImport("app", app_mod);
 
     const exe = b.addExecutable(.{
         .name = "sshz",
@@ -55,10 +75,10 @@ pub fn build(b: *std.Build) void {
     // Tests
     const test_step = b.step("test", "Run unit tests");
 
-    const test_configs = [_]struct { name: []const u8, imports: []const struct { n: []const u8, m: *std.Build.Module } }{
-        .{ .name = "test_ssh_config", .imports = &.{.{ .n = "ssh_config", .m = ssh_config_mod }} },
-        .{ .name = "test_meta", .imports = &.{.{ .n = "meta", .m = meta_mod }} },
-        .{ .name = "test_utils", .imports = &.{.{ .n = "utils", .m = utils_mod }} },
+    const test_configs = [_]struct { name: []const u8, mod: *std.Build.Module }{
+        .{ .name = "test_ssh_config", .mod = ssh_config_mod },
+        .{ .name = "test_meta", .mod = meta_mod },
+        .{ .name = "test_utils", .mod = utils_mod },
     };
 
     for (test_configs) |tc| {
@@ -67,9 +87,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         });
-        for (tc.imports) |imp| {
-            test_mod.addImport(imp.n, imp.m);
-        }
+        test_mod.addImport(std.fs.path.stem(tc.name)[5..], tc.mod); // "test_ssh_config" -> "ssh_config"
 
         const t = b.addTest(.{
             .name = tc.name,

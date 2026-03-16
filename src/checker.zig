@@ -20,32 +20,28 @@ pub const CheckRequest = struct {
 
 pub const ResultQueue = struct {
     mutex: std.Thread.Mutex = .{},
-    results: std.ArrayList(CheckResult),
+    results: std.ArrayList(CheckResult) = .{},
+    allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) ResultQueue {
-        return .{
-            .results = std.ArrayList(CheckResult).init(allocator),
-        };
+        return .{ .allocator = allocator };
     }
 
     pub fn deinit(self: *ResultQueue) void {
-        self.results.deinit();
+        self.results.deinit(self.allocator);
     }
 
     pub fn push(self: *ResultQueue, result: CheckResult) void {
         self.mutex.lock();
         defer self.mutex.unlock();
-        self.results.append(result) catch {};
+        self.results.append(self.allocator, result) catch {};
     }
 
     pub fn drain(self: *ResultQueue, allocator: std.mem.Allocator) []CheckResult {
         self.mutex.lock();
         defer self.mutex.unlock();
         if (self.results.items.len == 0) return &.{};
-        return self.results.toOwnedSlice() catch {
-            _ = allocator;
-            return &.{};
-        };
+        return self.results.toOwnedSlice(allocator) catch return &.{};
     }
 };
 
@@ -54,21 +50,22 @@ pub const StatusChecker = struct {
     active_count: std.atomic.Value(u32),
     max_concurrent: u32 = 3,
     shutdown: std.atomic.Value(bool),
-    threads: std.ArrayList(std.Thread),
+    threads: std.ArrayList(std.Thread) = .{},
+    allocator: std.mem.Allocator,
 
     pub fn init(queue: *ResultQueue, allocator: std.mem.Allocator) StatusChecker {
         return .{
             .queue = queue,
             .active_count = std.atomic.Value(u32).init(0),
             .shutdown = std.atomic.Value(bool).init(false),
-            .threads = std.ArrayList(std.Thread).init(allocator),
+            .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *StatusChecker) void {
         self.shutdown.store(true, .release);
         for (self.threads.items) |t| t.join();
-        self.threads.deinit();
+        self.threads.deinit(self.allocator);
     }
 
     pub fn checkAll(self: *StatusChecker, requests: []const CheckRequest) void {
@@ -92,7 +89,7 @@ pub const StatusChecker = struct {
                 _ = self.active_count.fetchSub(1, .release);
                 continue;
             };
-            self.threads.append(thread) catch {
+            self.threads.append(self.allocator, thread) catch {
                 thread.join();
             };
         }
