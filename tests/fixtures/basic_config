@@ -1,0 +1,19 @@
+# Global settings
+ServerAliveInterval 60
+
+Host myserver
+    HostName 10.0.0.1
+    User root
+    Port 22
+    IdentityFile ~/.ssh/id_ed25519
+
+Host staging
+    HostName staging.example.com
+    User deploy
+    Port 2222
+
+# Jump host
+Host production
+    HostName 10.0.1.50
+    User admin
+    ProxyJump bastion
