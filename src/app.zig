@@ -298,12 +298,13 @@ pub const Model = struct {
                 self.form_state = null;
                 self.screen = .list;
             },
-            .tab => {
+            .tab, .down => {
                 if (k.modifiers.shift)
                     form.focusPrev()
                 else
                     form.focusNext();
             },
+            .up => form.focusPrev(),
             else => form.handleKey(k),
         }
         return .none;
