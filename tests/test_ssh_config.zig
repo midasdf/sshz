@@ -87,6 +87,125 @@ test "round-trip: parse then serialize preserves content" {
     try std.testing.expect(std.mem.indexOf(u8, output, "    HostName 10.0.0.1") != null);
 }
 
+test "remove first host" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host server-a
+        \\    HostName 10.0.0.1
+        \\    User admin
+        \\    Port 2200
+        \\
+        \\Host server-b
+        \\    HostName 10.0.0.2
+        \\    User server-b
+        \\    Port 2200
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), config.hosts.len);
+
+    // Delete server-a
+    try ssh_config.removeHost(allocator, &config, 0);
+    try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
+    try std.testing.expectEqualStrings("server-b", config.hosts[0].name);
+
+    // Serialize and verify server-a is gone
+    const output = try ssh_config.serialize(allocator, &config);
+    defer allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "server-a") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "server-b") != null);
+}
+
+test "remove last host" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host server-a
+        \\    HostName 10.0.0.1
+        \\    User admin
+        \\    Port 2200
+        \\
+        \\Host server-b
+        \\    HostName 10.0.0.2
+        \\    User server-b
+        \\    Port 2200
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    // Delete server-b (index 1)
+    try ssh_config.removeHost(allocator, &config, 1);
+    try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
+    try std.testing.expectEqualStrings("server-a", config.hosts[0].name);
+}
+
+test "remove all hosts" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host server-a
+        \\    HostName 10.0.0.1
+        \\
+        \\Host server-b
+        \\    HostName 10.0.0.2
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    try ssh_config.removeHost(allocator, &config, 0);
+    try ssh_config.removeHost(allocator, &config, 0);
+    try std.testing.expectEqual(@as(usize, 0), config.hosts.len);
+
+    // Serialize empty
+    const output = try ssh_config.serialize(allocator, &config);
+    defer allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Host") == null);
+}
+
+test "add then remove host" {
+    // Use page_allocator because addHost allocPrints new lines
+    // that aren't tracked for individual deallocation (by design—
+    // parsed lines are slices into original content, added lines are owned).
+    const allocator = std.heap.page_allocator;
+    const content =
+        \\Host existing
+        \\    HostName 10.0.0.1
+    ;
+    var config = try ssh_config.parse(allocator, content);
+
+    // Add a new host
+    try ssh_config.addHost(allocator, &config, .{
+        .name = "newhost",
+        .hostname = "10.0.0.2",
+        .user = "admin",
+        .port = 22,
+    });
+    try std.testing.expectEqual(@as(usize, 2), config.hosts.len);
+
+    // Remove the original host
+    try ssh_config.removeHost(allocator, &config, 0);
+    try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
+    try std.testing.expectEqualStrings("newhost", config.hosts[0].name);
+
+    // Serialize
+    const output = try ssh_config.serialize(allocator, &config);
+    try std.testing.expect(std.mem.indexOf(u8, output, "newhost") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "existing") == null);
+}
+
+test "remove out of bounds does nothing" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host myserver
+        \\    HostName 10.0.0.1
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    // Remove index 5 (out of bounds)
+    try ssh_config.removeHost(allocator, &config, 5);
+    try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
+}
+
 test "parse config with Match block skipped" {
     const allocator = std.testing.allocator;
     const content =
