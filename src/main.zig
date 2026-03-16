@@ -57,11 +57,22 @@ fn printUsage() void {
 
 fn launchTui(allocator: std.mem.Allocator) !void {
     var program = try zz.Program(app.Model).init(allocator);
-    defer program.deinit();
     try program.run();
 
-    // After TUI exits, check if we should connect
+    // Grab connect_host before deinit frees it
+    var connect_buf: [256]u8 = undefined;
+    var connect_host: ?[]const u8 = null;
     if (program.model.connect_host) |host_name| {
+        if (host_name.len <= connect_buf.len) {
+            @memcpy(connect_buf[0..host_name.len], host_name);
+            connect_host = connect_buf[0..host_name.len];
+        }
+    }
+
+    // Deinit BEFORE launching ssh — this restores terminal from raw mode
+    program.deinit();
+
+    if (connect_host) |host_name| {
         try directConnect(allocator, host_name, &.{});
     }
 }
