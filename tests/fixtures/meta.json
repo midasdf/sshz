@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hosts": {
+    "myserver": {
+      "tags": ["work", "prod"],
+      "last_connected": 1710576600,
+      "connect_count": 42,
+      "port_forwards": [
+        {"type": "local", "bind": "8080", "target": "localhost:80"}
+      ]
+    }
+  }
+}
