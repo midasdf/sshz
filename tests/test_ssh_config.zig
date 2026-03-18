@@ -97,7 +97,7 @@ test "remove first host" {
         \\
         \\Host server-b
         \\    HostName 10.0.0.2
-        \\    User server-b
+        \\    User deploy
         \\    Port 2200
     ;
     var config = try ssh_config.parse(allocator, content);
@@ -127,7 +127,7 @@ test "remove last host" {
         \\
         \\Host server-b
         \\    HostName 10.0.0.2
-        \\    User server-b
+        \\    User deploy
         \\    Port 2200
     ;
     var config = try ssh_config.parse(allocator, content);
