@@ -10,6 +10,7 @@ pub const HostStatus = enum {
 pub const CheckResult = struct {
     host_index: usize,
     status: HostStatus,
+    generation: u32 = 0,
 };
 
 pub const CheckRequest = struct {
@@ -51,6 +52,7 @@ pub const StatusChecker = struct {
     max_concurrent: u32 = 3,
     shutdown: std.atomic.Value(bool),
     threads: std.ArrayList(std.Thread) = .{},
+    generation: std.atomic.Value(u32),
     allocator: std.mem.Allocator,
 
     pub fn init(queue: *ResultQueue, allocator: std.mem.Allocator) StatusChecker {
@@ -58,17 +60,29 @@ pub const StatusChecker = struct {
             .queue = queue,
             .active_count = std.atomic.Value(u32).init(0),
             .shutdown = std.atomic.Value(bool).init(false),
+            .generation = std.atomic.Value(u32).init(0),
             .allocator = allocator,
         };
     }
 
     pub fn deinit(self: *StatusChecker) void {
         self.shutdown.store(true, .release);
-        for (self.threads.items) |t| t.join();
+        self.joinAllThreads();
         self.threads.deinit(self.allocator);
     }
 
+    fn joinAllThreads(self: *StatusChecker) void {
+        for (self.threads.items) |t| t.join();
+        self.threads.clearRetainingCapacity();
+    }
+
+    /// Wait for any in-flight checks, then start a new round.
     pub fn checkAll(self: *StatusChecker, requests: []const CheckRequest) void {
+        // Join previous round's threads before starting new ones
+        self.joinAllThreads();
+        // Increment generation so any lingering results are discarded
+        const gen = self.generation.fetchAdd(1, .release) +% 1;
+
         for (requests) |req| {
             if (self.shutdown.load(.acquire)) return;
 
@@ -84,8 +98,9 @@ pub const StatusChecker = struct {
                 req.host_index,
                 req.hostname,
                 req.port,
+                gen,
             }) catch {
-                self.queue.push(.{ .host_index = req.host_index, .status = .offline });
+                self.queue.push(.{ .host_index = req.host_index, .status = .offline, .generation = gen });
                 _ = self.active_count.fetchSub(1, .release);
                 continue;
             };
@@ -95,12 +110,12 @@ pub const StatusChecker = struct {
         }
     }
 
-    fn checkWorker(self: *StatusChecker, host_index: usize, hostname: []const u8, port: u16) void {
+    fn checkWorker(self: *StatusChecker, host_index: usize, hostname: []const u8, port: u16, gen: u32) void {
         defer _ = self.active_count.fetchSub(1, .release);
         if (self.shutdown.load(.acquire)) return;
 
         const status = tcpCheck(hostname, port);
-        self.queue.push(.{ .host_index = host_index, .status = status });
+        self.queue.push(.{ .host_index = host_index, .status = status, .generation = gen });
     }
 };
 

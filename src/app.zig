@@ -46,6 +46,7 @@ pub const Model = struct {
     form_state: ?host_form.FormState = null,
     forward_state: ?forward_view.ForwardState = null,
     connect_host: ?[]const u8 = null,
+    checker_generation: u32 = 0,
     pa: std.mem.Allocator,
 
     pub const SortMode = enum { name, recent, tag };
@@ -123,6 +124,7 @@ pub const Model = struct {
 
         if (requests.items.len > 0) {
             self.status_checker.checkAll(requests.items);
+            self.checker_generation = self.status_checker.generation.load(.acquire);
         }
     }
 
@@ -147,6 +149,8 @@ pub const Model = struct {
                 // Poll status results
                 const results = self.result_queue.drain(self.pa);
                 for (results) |r| {
+                    // Discard stale results from previous check rounds
+                    if (r.generation != self.checker_generation) continue;
                     if (r.host_index < self.hosts.items.len) {
                         self.hosts.items[r.host_index].status = r.status;
                     }
@@ -192,7 +196,9 @@ pub const Model = struct {
                     self.search_active = false;
                     self.search_text.clearRetainingCapacity();
                 },
-                .backspace => _ = self.search_text.pop(),
+                .backspace => {
+                    if (self.search_text.items.len > 0) _ = self.search_text.pop();
+                },
                 .enter => self.search_active = false,
                 .char => |c| {
                     if (c < 128) self.search_text.append(self.pa, @intCast(c)) catch {};
@@ -419,6 +425,16 @@ pub const Model = struct {
             .identity_file = if (identity_val.len > 0) (self.pa.dupe(u8, identity_val) catch null) else null,
             .proxy_jump = if (proxy_val.len > 0) (self.pa.dupe(u8, proxy_val) catch null) else null,
         };
+
+        // If editing, remove old host first
+        if (form.editing_host) |old_name| {
+            for (self.config.hosts, 0..) |h, ci| {
+                if (std.mem.eql(u8, h.name, old_name)) {
+                    ssh_config.removeHost(self.pa, &self.config, ci) catch {};
+                    break;
+                }
+            }
+        }
 
         ssh_config.addHost(self.pa, &self.config, new_host) catch {};
         ssh_config.writeFile(self.pa, &self.config, self.config_path, self.backup_dir) catch {};

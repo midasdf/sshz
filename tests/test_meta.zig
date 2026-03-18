@@ -20,7 +20,7 @@ test "parse meta.json" {
 
 test "record connection creates new host entry" {
     const allocator = std.testing.allocator;
-    var store = meta.MetaStore.empty();
+    var store = meta.MetaStore.initWith(allocator);
     defer store.deinit(allocator);
 
     try store.recordConnection(allocator, "newhost");
@@ -33,7 +33,7 @@ test "record connection creates new host entry" {
 
 test "record connection increments existing count" {
     const allocator = std.testing.allocator;
-    var store = meta.MetaStore.empty();
+    var store = meta.MetaStore.initWith(allocator);
     defer store.deinit(allocator);
 
     try store.recordConnection(allocator, "host1");
@@ -45,7 +45,7 @@ test "record connection increments existing count" {
 
 test "serialize and parse round-trip" {
     const allocator = std.testing.allocator;
-    var store = meta.MetaStore.empty();
+    var store = meta.MetaStore.initWith(allocator);
     defer store.deinit(allocator);
 
     try store.recordConnection(allocator, "roundtrip");

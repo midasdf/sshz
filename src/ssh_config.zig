@@ -190,6 +190,9 @@ pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void 
     for (config.raw_lines) |l| try new_lines.append(allocator, l);
     try new_lines.append(allocator, "");
 
+    // Track where the new host block starts
+    const host_start_line = new_lines.items.len;
+
     try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "Host {s}", .{host.name}));
     if (host.hostname) |v| {
         try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "    HostName {s}", .{v}));
@@ -207,6 +210,8 @@ pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void 
         try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "    ProxyJump {s}", .{v}));
     }
 
+    const host_end_line = new_lines.items.len;
+
     allocator.free(config.raw_lines);
     config.raw_lines = try new_lines.toOwnedSlice(allocator);
 
@@ -214,8 +219,8 @@ pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void 
     defer new_hosts.deinit(allocator);
     for (config.hosts) |h| try new_hosts.append(allocator, h);
     var new_host = host;
-    new_host.start_line = config.raw_lines.len - 1;
-    new_host.end_line = config.raw_lines.len;
+    new_host.start_line = host_start_line;
+    new_host.end_line = host_end_line;
     try new_hosts.append(allocator, new_host);
     allocator.free(config.hosts);
     config.hosts = try new_hosts.toOwnedSlice(allocator);
