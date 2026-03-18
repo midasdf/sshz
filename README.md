@@ -1,0 +1,182 @@
+# SSHZ
+
+A lightweight SSH connection manager with a beautiful TUI, written in Zig.
+
+**254KB static binary. Zero dependencies. Runs on Raspberry Pi Zero 2W.**
+
+![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+
+## Features
+
+- **TUI host list** with real-time connectivity status indicators
+- **Background status checks** (3-thread pool with TCP connect)
+- **Search & filter** hosts by name, hostname, user, or tags
+- **Tag-based organization** with cycling tag filter
+- **Sort modes** — by name, recent connection, or tag
+- **Add / Edit / Delete** hosts directly from the TUI
+- **Port forwarding presets** saved per host, toggled at connect time
+- **Connection history** with relative timestamps ("3m ago", "2d ago")
+- **Auto-backup** of `~/.ssh/config` before every write (10 generations)
+- **CLI mode** — `sshz myserver` for instant connect without TUI
+- **Cross-compiles** to aarch64 for ARM devices
+
+## Screenshots
+
+```
+ SSHZ - SSH Manager                          2 hosts
+────────────────────────────────────────────────────────
+ ● server-a        admin@10.0.0.1:2200   [server]   3m ago
+ ● server-b            server-b@10.0.0.2:2200        [server]   18s ago
+────────────────────────────────────────────────────────
+ j/k nav  Enter connect  a add  e edit  d del  / search  ? help  q quit
+```
+
+Status indicators:
+- `●` green — online
+- `○` red — offline
+- `◌` yellow — checking
+- `?` gray — not yet checked
+
+## Install
+
+### Build from source
+
+Requires [Zig](https://ziglang.org/) 0.15.0+.
+
+```bash
+git clone https://github.com/midasdf/sshz.git
+cd sshz
+zig build -Doptimize=ReleaseSmall
+```
+
+Binary is at `zig-out/bin/sshz`. Copy it to your PATH:
+
+```bash
+sudo cp zig-out/bin/sshz /usr/local/bin/
+```
+
+### Cross-compile for Raspberry Pi / ARM
+
+```bash
+zig build -Doptimize=ReleaseSmall -Dtarget=aarch64-linux-musl
+```
+
+## Usage
+
+### TUI mode
+
+```bash
+sshz
+```
+
+### Direct connect
+
+```bash
+sshz myserver              # Connect to host
+sshz myserver uptime       # Run remote command
+```
+
+### CLI options
+
+```
+sshz                       Launch TUI
+sshz <host>                Connect to host (records history)
+sshz <host> <command...>   Execute remote command
+sshz --help                Show help
+sshz --version             Show version
+```
+
+## Keybindings
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `Enter` | Connect to selected host |
+| `a` | Add new host |
+| `e` | Edit selected host |
+| `d` | Delete selected host (with confirmation) |
+| `/` | Search hosts |
+| `t` | Cycle tag filter |
+| `s` | Cycle sort mode (name / recent / tag) |
+| `r` | Refresh status checks |
+| `f` | Port forward settings |
+| `?` | Show help |
+| `q` | Quit |
+
+In add/edit form:
+| Key | Action |
+|-----|--------|
+| `Tab` / `↓` | Next field |
+| `Shift+Tab` / `↑` | Previous field |
+| `Enter` | Save |
+| `Esc` | Cancel |
+
+## Data Storage
+
+SSHZ uses two data sources:
+
+### `~/.ssh/config`
+
+Standard SSH config file. SSHZ reads and writes it directly, preserving comments, blank lines, and formatting.
+
+Supported directives: `Host`, `HostName`, `User`, `Port`, `IdentityFile`, `ProxyJump`, `ProxyCommand`, `LocalForward`, `RemoteForward`, `DynamicForward`.
+
+`Match` blocks and `Include` directives are preserved but not parsed.
+
+### `~/.config/sshz/meta.json`
+
+SSHZ-specific metadata: tags, connection history, and port forwarding presets.
+
+```json
+{
+  "version": 1,
+  "hosts": {
+    "myserver": {
+      "tags": ["work", "prod"],
+      "last_connected": 1710576600,
+      "connect_count": 42,
+      "port_forwards": [
+        {"type": "local", "bind": "8080", "target": "localhost:80"}
+      ]
+    }
+  }
+}
+```
+
+### `~/.config/sshz/backups/`
+
+Auto-backups of `~/.ssh/config` created before every write. Keeps the last 10 versions.
+
+## Architecture
+
+```
+src/
+├── main.zig           Entry point, CLI arg parsing, SSH exec
+├── app.zig            ZigZag Model — Elm architecture state machine
+├── ssh_config.zig     SSH config parser/writer with format preservation
+├── meta.zig           JSON metadata store
+├── checker.zig        Background TCP status checker (3-thread pool)
+├── utils.zig          Time formatting, string helpers
+└── views/
+    ├── host_list.zig  Main host list with search/filter/sort
+    ├── host_form.zig  Add/edit form with field navigation
+    ├── forward.zig    Port forward toggle selection
+    └── help.zig       Keybinding reference overlay
+```
+
+Built with [ZigZag](https://github.com/meszmate/zigzag) TUI framework.
+
+## Performance
+
+| Metric | Value |
+|--------|-------|
+| Binary size (x86_64) | 281 KB |
+| Binary size (aarch64) | 254 KB |
+| Startup time | < 50ms |
+| Memory usage | < 2 MB RSS |
+| Dependencies | Zero (static binary) |
+
+## License
+
+[MIT](LICENSE)
