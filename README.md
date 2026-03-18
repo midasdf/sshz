@@ -1,4 +1,4 @@
-# SSHZ
+# sshz
 
 A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 
@@ -23,7 +23,7 @@ A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 ## Screenshots
 
 ```
- SSHZ - SSH Manager                          3 hosts
+ sshz - SSH Manager                          3 hosts
 ────────────────────────────────────────────────────────
  ● web-prod        deploy@web.example.com:22     [prod]     3m ago
  ● staging         admin@10.0.1.50:22            [dev]      2h ago
@@ -115,11 +115,11 @@ In add/edit form:
 
 ## Data Storage
 
-SSHZ uses two data sources:
+sshz uses two data sources:
 
 ### `~/.ssh/config`
 
-Standard SSH config file. SSHZ reads and writes it directly, preserving comments, blank lines, and formatting.
+Standard SSH config file. sshz reads and writes it directly, preserving comments, blank lines, and formatting.
 
 Supported directives: `Host`, `HostName`, `User`, `Port`, `IdentityFile`, `ProxyJump`, `ProxyCommand`, `LocalForward`, `RemoteForward`, `DynamicForward`.
 
@@ -127,7 +127,7 @@ Supported directives: `Host`, `HostName`, `User`, `Port`, `IdentityFile`, `Proxy
 
 ### `~/.config/sshz/meta.json`
 
-SSHZ-specific metadata: tags, connection history, and port forwarding presets.
+sshz-specific metadata: tags, connection history, and port forwarding presets.
 
 ```json
 {
