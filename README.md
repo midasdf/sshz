@@ -2,7 +2,7 @@
 
 A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 
-**254KB static binary. Zero dependencies. Runs on Raspberry Pi Zero 2W.**
+**~260KB static binary. Zero dependencies. Runs on Raspberry Pi Zero 2W.**
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
@@ -14,7 +14,7 @@ A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 - **Tag-based organization** with cycling tag filter
 - **Sort modes** — by name, recent connection, or tag
 - **Add / Edit / Delete** hosts directly from the TUI
-- **Port forwarding presets** saved per host, toggled at connect time
+- **Port forwarding presets** saved per host (UI for toggle selection; `-L`/`-R`/`-D` flag passing is WIP)
 - **Connection history** with relative timestamps ("3m ago", "2d ago")
 - **Auto-backup** of `~/.ssh/config` before every write (10 generations)
 - **CLI mode** — `sshz myserver` for instant connect without TUI
@@ -23,10 +23,11 @@ A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 ## Screenshots
 
 ```
- SSHZ - SSH Manager                          2 hosts
+ SSHZ - SSH Manager                          3 hosts
 ────────────────────────────────────────────────────────
- ● server-a        admin@10.0.0.1:2200   [server]   3m ago
- ● server-b            server-b@10.0.0.2:2200        [server]   18s ago
+ ● web-prod        deploy@web.example.com:22     [prod]     3m ago
+ ● staging         admin@10.0.1.50:22            [dev]      2h ago
+ ○ old-server      root@192.168.1.100:2222                  30d ago
 ────────────────────────────────────────────────────────
  j/k nav  Enter connect  a add  e edit  d del  / search  ? help  q quit
 ```
@@ -171,10 +172,8 @@ Built with [ZigZag](https://github.com/meszmate/zigzag) TUI framework.
 
 | Metric | Value |
 |--------|-------|
-| Binary size (x86_64) | 281 KB |
-| Binary size (aarch64) | 254 KB |
-| Startup time | < 50ms |
-| Memory usage | < 2 MB RSS |
+| Binary size (x86_64) | ~288 KB |
+| Binary size (aarch64) | ~261 KB |
 | Dependencies | Zero (static binary) |
 
 ## License
