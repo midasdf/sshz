@@ -20,23 +20,9 @@ A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 - **CLI mode** — `sshz myserver` for instant connect without TUI
 - **Cross-compiles** to aarch64 for ARM devices
 
-## Screenshots
+## Screenshot
 
-```
- sshz - SSH Manager                          3 hosts
-────────────────────────────────────────────────────────
- ● web-prod        deploy@web.example.com:22     [prod]     3m ago
- ● staging         admin@10.0.1.50:22            [dev]      2h ago
- ○ old-server      root@192.168.1.100:2222                  30d ago
-────────────────────────────────────────────────────────
- j/k nav  Enter connect  a add  e edit  d del  / search  ? help  q quit
-```
-
-Status indicators:
-- `●` green — online
-- `○` red — offline
-- `◌` yellow — checking
-- `?` gray — not yet checked
+![sshz main view](screenshots/main-view.png)
 
 ## Install
 

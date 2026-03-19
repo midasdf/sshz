@@ -52,6 +52,8 @@ pub const StatusChecker = struct {
     max_concurrent: u32 = 3,
     shutdown: std.atomic.Value(bool),
     threads: std.ArrayList(std.Thread) = .{},
+    threads_mutex: std.Thread.Mutex = .{},
+    dispatcher_thread: ?std.Thread = null,
     generation: std.atomic.Value(u32),
     allocator: std.mem.Allocator,
 
@@ -67,21 +69,46 @@ pub const StatusChecker = struct {
 
     pub fn deinit(self: *StatusChecker) void {
         self.shutdown.store(true, .release);
+        if (self.dispatcher_thread) |dt| {
+            dt.join();
+            self.dispatcher_thread = null;
+        }
         self.joinAllThreads();
         self.threads.deinit(self.allocator);
     }
 
     fn joinAllThreads(self: *StatusChecker) void {
-        for (self.threads.items) |t| t.join();
-        self.threads.clearRetainingCapacity();
+        self.threads_mutex.lock();
+        const threads = self.threads.toOwnedSlice(self.allocator) catch return;
+        self.threads_mutex.unlock();
+        for (threads) |t| t.join();
+        self.allocator.free(threads);
     }
 
-    /// Wait for any in-flight checks, then start a new round.
+    /// Start a new round of checks. Returns immediately (non-blocking).
     pub fn checkAll(self: *StatusChecker, requests: []const CheckRequest) void {
-        // Join previous round's threads before starting new ones
+        // Join previous dispatcher if still running
+        if (self.dispatcher_thread) |dt| {
+            dt.join();
+            self.dispatcher_thread = null;
+        }
         self.joinAllThreads();
         // Increment generation so any lingering results are discarded
         const gen = self.generation.fetchAdd(1, .release) +% 1;
+
+        // Copy requests so dispatcher thread owns the data
+        const owned_requests = self.allocator.dupe(CheckRequest, requests) catch return;
+
+        self.dispatcher_thread = std.Thread.spawn(.{}, dispatchWorkers, .{
+            self, owned_requests, gen,
+        }) catch {
+            self.allocator.free(owned_requests);
+            return;
+        };
+    }
+
+    fn dispatchWorkers(self: *StatusChecker, requests: []const CheckRequest, gen: u32) void {
+        defer self.allocator.free(requests);
 
         for (requests) |req| {
             if (self.shutdown.load(.acquire)) return;
@@ -104,9 +131,13 @@ pub const StatusChecker = struct {
                 _ = self.active_count.fetchSub(1, .release);
                 continue;
             };
+            self.threads_mutex.lock();
             self.threads.append(self.allocator, thread) catch {
+                self.threads_mutex.unlock();
                 thread.join();
+                continue;
             };
+            self.threads_mutex.unlock();
         }
     }
 
