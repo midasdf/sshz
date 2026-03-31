@@ -206,6 +206,114 @@ test "remove out of bounds does nothing" {
     try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
 }
 
+test "parse AddressFamily inet6" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host v6server
+        \\    HostName 2001:db8::1
+        \\    User root
+        \\    AddressFamily inet6
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
+    try std.testing.expectEqualStrings("2001:db8::1", config.hosts[0].hostname.?);
+    try std.testing.expectEqual(ssh_config.AddressFamily.inet6, config.hosts[0].address_family.?);
+}
+
+test "parse AddressFamily case insensitive" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host server1
+        \\    AddressFamily INET
+        \\
+        \\Host server2
+        \\    AddressFamily Inet6
+        \\
+        \\Host server3
+        \\    AddressFamily Any
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 3), config.hosts.len);
+    try std.testing.expectEqual(ssh_config.AddressFamily.inet, config.hosts[0].address_family.?);
+    try std.testing.expectEqual(ssh_config.AddressFamily.inet6, config.hosts[1].address_family.?);
+    try std.testing.expectEqual(ssh_config.AddressFamily.any, config.hosts[2].address_family.?);
+}
+
+test "parse invalid AddressFamily yields null" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host myserver
+        \\    HostName 10.0.0.1
+        \\    AddressFamily bogus
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 1), config.hosts.len);
+    try std.testing.expect(config.hosts[0].address_family == null);
+}
+
+test "addHost with AddressFamily serializes correctly" {
+    const allocator = std.heap.page_allocator;
+    const content =
+        \\Host existing
+        \\    HostName 10.0.0.1
+    ;
+    var config = try ssh_config.parse(allocator, content);
+
+    try ssh_config.addHost(allocator, &config, .{
+        .name = "v6host",
+        .hostname = "2001:db8::1",
+        .user = "admin",
+        .address_family = .inet6,
+    });
+    try std.testing.expectEqual(@as(usize, 2), config.hosts.len);
+
+    const output = try ssh_config.serialize(allocator, &config);
+    try std.testing.expect(std.mem.indexOf(u8, output, "    AddressFamily inet6") != null);
+}
+
+test "addHost without AddressFamily omits directive" {
+    const allocator = std.heap.page_allocator;
+    const content =
+        \\Host existing
+        \\    HostName 10.0.0.1
+    ;
+    var config = try ssh_config.parse(allocator, content);
+
+    try ssh_config.addHost(allocator, &config, .{
+        .name = "v4host",
+        .hostname = "10.0.0.2",
+    });
+
+    const output = try ssh_config.serialize(allocator, &config);
+    try std.testing.expect(std.mem.indexOf(u8, output, "AddressFamily") == null);
+}
+
+test "round-trip with AddressFamily preserved" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\Host v6server
+        \\    HostName 2001:db8::1
+        \\    AddressFamily inet6
+        \\    Port 22
+    ;
+    var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
+
+    // Verify parsed correctly
+    try std.testing.expectEqual(ssh_config.AddressFamily.inet6, config.hosts[0].address_family.?);
+
+    // Serialize preserves raw lines (including AddressFamily)
+    const output = try ssh_config.serialize(allocator, &config);
+    defer allocator.free(output);
+    try std.testing.expect(std.mem.indexOf(u8, output, "AddressFamily inet6") != null);
+}
+
 test "parse config with Match block skipped" {
     const allocator = std.testing.allocator;
     const content =

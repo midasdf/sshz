@@ -8,10 +8,11 @@ pub const FormField = enum(usize) {
     port = 3,
     identity_file = 4,
     proxy_jump = 5,
-    tags = 6,
+    address_family = 6,
+    tags = 7,
 };
 
-pub const field_count = 7;
+pub const field_count = 8;
 
 pub const FormState = struct {
     fields: [field_count]zz.TextInput,
@@ -21,11 +22,12 @@ pub const FormState = struct {
     pub fn init(allocator: std.mem.Allocator) FormState {
         const placeholders = [field_count][]const u8{
             "Host name",
-            "IP/hostname",
+            "IP/hostname (IPv6: 2001:db8::1)",
             "username",
             "22",
             "~/.ssh/id_ed25519",
             "bastion-host",
+            "any/inet/inet6",
             "tag1, tag2",
         };
 
@@ -79,13 +81,14 @@ pub fn render(form: *const FormState, ctx: *const zz.Context) ![]const u8 {
     const sep = try dim.render(a, sep_chars);
 
     const field_labels = [field_count][]const u8{
-        " Name:         ",
-        " HostName:     ",
-        " User:         ",
-        " Port:         ",
-        " IdentityFile: ",
-        " ProxyJump:    ",
-        " Tags:         ",
+        " Name:          ",
+        " HostName:      ",
+        " User:          ",
+        " Port:          ",
+        " IdentityFile:  ",
+        " ProxyJump:     ",
+        " AddressFamily: ",
+        " Tags:          ",
     };
 
     const label_style = (zz.Style{}).fg(zz.Color.white()).bold(true);

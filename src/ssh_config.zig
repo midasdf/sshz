@@ -1,5 +1,26 @@
 const std = @import("std");
 
+pub const AddressFamily = enum {
+    any,
+    inet,
+    inet6,
+
+    pub fn toString(self: AddressFamily) []const u8 {
+        return switch (self) {
+            .any => "any",
+            .inet => "inet",
+            .inet6 => "inet6",
+        };
+    }
+
+    pub fn fromString(s: []const u8) ?AddressFamily {
+        if (std.ascii.eqlIgnoreCase(s, "any")) return .any;
+        if (std.ascii.eqlIgnoreCase(s, "inet")) return .inet;
+        if (std.ascii.eqlIgnoreCase(s, "inet6")) return .inet6;
+        return null;
+    }
+};
+
 pub const Host = struct {
     name: []const u8,
     hostname: ?[]const u8 = null,
@@ -11,6 +32,7 @@ pub const Host = struct {
     local_forward: ?[]const u8 = null,
     remote_forward: ?[]const u8 = null,
     dynamic_forward: ?[]const u8 = null,
+    address_family: ?AddressFamily = null,
     start_line: usize = 0,
     end_line: usize = 0,
     is_wildcard: bool = false,
@@ -169,6 +191,8 @@ fn setHostField(h: *Host, key: []const u8, value: []const u8) void {
         h.remote_forward = value;
     } else if (std.ascii.eqlIgnoreCase(key, "DynamicForward")) {
         h.dynamic_forward = value;
+    } else if (std.ascii.eqlIgnoreCase(key, "AddressFamily")) {
+        h.address_family = AddressFamily.fromString(value);
     }
 }
 
@@ -208,6 +232,9 @@ pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void 
     }
     if (host.proxy_jump) |v| {
         try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "    ProxyJump {s}", .{v}));
+    }
+    if (host.address_family) |af| {
+        try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "    AddressFamily {s}", .{af.toString()}));
     }
 
     const host_end_line = new_lines.items.len;

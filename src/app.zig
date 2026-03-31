@@ -256,6 +256,7 @@ pub const Model = struct {
                         }
                         if (entry.config.identity_file) |v| form.fields[4].setValue(v) catch {};
                         if (entry.config.proxy_jump) |v| form.fields[5].setValue(v) catch {};
+                        if (entry.config.address_family) |af| form.fields[6].setValue(af.toString()) catch {};
                         self.form_state = form;
                         self.screen = .edit_form;
                     }
@@ -415,6 +416,7 @@ pub const Model = struct {
         const port_val = form.getValue(.port);
         const identity_val = form.getValue(.identity_file);
         const proxy_val = form.getValue(.proxy_jump);
+        const addr_family_val = form.getValue(.address_family);
         const tags_val = form.getValue(.tags);
 
         const new_host = ssh_config.Host{
@@ -424,6 +426,7 @@ pub const Model = struct {
             .port = if (port_val.len > 0) std.fmt.parseInt(u16, port_val, 10) catch null else null,
             .identity_file = if (identity_val.len > 0) (self.pa.dupe(u8, identity_val) catch null) else null,
             .proxy_jump = if (proxy_val.len > 0) (self.pa.dupe(u8, proxy_val) catch null) else null,
+            .address_family = if (addr_family_val.len > 0) ssh_config.AddressFamily.fromString(addr_family_val) else null,
         };
 
         // If editing, remove old host first
@@ -434,6 +437,12 @@ pub const Model = struct {
                     break;
                 }
             }
+        }
+
+        // Warn if AddressFamily input was invalid
+        if (addr_family_val.len > 0 and new_host.address_family == null) {
+            self.notification = "Invalid AddressFamily (use any/inet/inet6)";
+            self.notification_timer = 50;
         }
 
         ssh_config.addHost(self.pa, &self.config, new_host) catch {};

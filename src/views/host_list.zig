@@ -146,7 +146,10 @@ fn renderHostLine(a: std.mem.Allocator, entry: App.HostEntry, is_selected: bool,
     const hostname = ssh_config.Config.effectiveHostname(entry.config);
     const port = ssh_config.Config.effectivePort(entry.config);
     const user = entry.config.user orelse "?";
-    const conn_info = try std.fmt.allocPrint(a, "{s}@{s}:{d}", .{ user, hostname, port });
+    const conn_info = if (std.mem.indexOfScalar(u8, hostname, ':') != null)
+        try std.fmt.allocPrint(a, "{s}@[{s}]:{d}", .{ user, hostname, port })
+    else
+        try std.fmt.allocPrint(a, "{s}@{s}:{d}", .{ user, hostname, port });
     var conn_buf: [30]u8 = undefined;
     const display_conn = utils.truncate(conn_info, 28, &conn_buf);
 
