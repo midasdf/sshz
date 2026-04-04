@@ -26,9 +26,42 @@ A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 
 ## Install
 
-### Build from source
+### Install Zig
 
-Requires [Zig](https://ziglang.org/) 0.15.0+.
+sshz requires Zig 0.15.0+. Choose one of the following methods:
+
+**Download from ziglang.org (all platforms):**
+
+```bash
+# Download the latest master build for your platform from:
+# https://ziglang.org/download/
+# Extract and add to PATH:
+export PATH="$HOME/zig:$PATH"
+```
+
+**Package managers:**
+
+```bash
+# macOS
+brew install zig
+
+# Arch Linux
+pacman -S zig
+
+# Nix
+nix-shell -p zig
+
+# Windows (scoop)
+scoop install zig
+
+# Windows (winget)
+winget install zig.zig
+
+# Snap
+snap install zig --classic --beta
+```
+
+### Build from source
 
 ```bash
 git clone https://github.com/midasdf/sshz.git
