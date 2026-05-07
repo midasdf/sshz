@@ -211,7 +211,7 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
 
 pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !MetaStore {
     const cwd = std.Io.Dir.cwd();
-    const content = cwd.readFileAlloc(io, allocator, path, .limited(1024 * 1024)) catch |err| switch (err) {
+    const content = cwd.readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch |err| switch (err) {
         error.FileNotFound => return MetaStore.initWith(allocator),
         else => return err,
     };
@@ -244,7 +244,7 @@ pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, store: *const MetaSto
         try w.interface.flush();
     }
 
-    try std.Io.Dir.rename(dir_fd, tmp_name, dir_fd, basename, io);
+    try dir_fd.rename(tmp_name, dir_fd, basename, io);
 }
 
 pub fn defaultMetaPath(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {

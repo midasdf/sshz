@@ -287,7 +287,7 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
 
 pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Config {
     const cwd = std.Io.Dir.cwd();
-    const content = try cwd.readFileAlloc(io, allocator, path, .limited(1024 * 1024));
+    const content = try cwd.readFileAlloc(io, path, allocator, .limited(1024 * 1024));
     defer allocator.free(content);
     return parse(allocator, content);
 }
@@ -317,14 +317,14 @@ pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, config: *const Config
         try w.interface.flush();
     }
 
-    try std.Io.Dir.rename(dir_fd, tmp_name, dir_fd, basename, io);
+    try dir_fd.rename(tmp_name, dir_fd, basename, io);
 }
 
 fn backupFile(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, backup_dir: []const u8) !void {
     const cwd = std.Io.Dir.cwd();
     cwd.createDirPath(io, backup_dir) catch {};
 
-    const content = cwd.readFileAlloc(io, allocator, source_path, .limited(1024 * 1024)) catch return;
+    const content = cwd.readFileAlloc(io, source_path, allocator, .limited(1024 * 1024)) catch return;
     defer allocator.free(content);
 
     const ts = std.time.timestamp();
