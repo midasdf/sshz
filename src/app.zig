@@ -26,6 +26,9 @@ pub const HostEntry = struct {
 pub const Model = struct {
     screen: Screen = .list,
     hosts: std.ArrayList(HostEntry),
+    /// Indices into `hosts` that pass the active search/tag filters, in
+    /// display order. `selected` is an index into this list, NOT `hosts`.
+    visible_indices: std.ArrayList(usize),
     config: ssh_config.Config,
     meta_store: meta_mod.MetaStore,
     config_path: []const u8,
@@ -64,6 +67,7 @@ pub const Model = struct {
         self.env = ctx.environ_map;
 
         self.hosts = .empty;
+        self.visible_indices = .empty;
         self.search_text = .empty;
         self.all_tags = .empty;
 
@@ -92,6 +96,7 @@ pub const Model = struct {
     pub fn deinit(self: *Model) void {
         self.status_checker.deinit();
         self.hosts.deinit(self.pa);
+        self.visible_indices.deinit(self.pa);
         self.search_text.deinit(self.pa);
         self.all_tags.deinit(self.pa);
         self.result_queue.deinit();
@@ -110,6 +115,52 @@ pub const Model = struct {
                 .status = .unknown,
             }) catch {};
         }
+        self.rebuildVisibleIndices();
+    }
+
+    fn rebuildVisibleIndices(self: *Model) void {
+        self.visible_indices.clearRetainingCapacity();
+        for (self.hosts.items, 0..) |entry, i| {
+            if (!self.entryMatchesFilters(entry)) continue;
+            self.visible_indices.append(self.pa, i) catch {};
+        }
+        // Clamp `selected` so it stays in range when filters shrink the list.
+        if (self.selected >= self.visible_indices.items.len) {
+            self.selected = if (self.visible_indices.items.len == 0) 0 else self.visible_indices.items.len - 1;
+        }
+    }
+
+    fn entryMatchesFilters(self: *const Model, entry: HostEntry) bool {
+        if (self.search_text.items.len > 0 and !matchesSearch(entry, self.search_text.items)) return false;
+        if (self.tag_filter) |tag| {
+            if (!hasTag(entry, tag)) return false;
+        }
+        return true;
+    }
+
+    fn matchesSearch(entry: HostEntry, search: []const u8) bool {
+        if (std.mem.indexOf(u8, entry.config.name, search) != null) return true;
+        if (entry.config.hostname) |hn| {
+            if (std.mem.indexOf(u8, hn, search) != null) return true;
+        }
+        if (entry.config.user) |u| {
+            if (std.mem.indexOf(u8, u, search) != null) return true;
+        }
+        if (entry.meta) |m| {
+            for (m.tags) |tag| {
+                if (std.mem.indexOf(u8, tag, search) != null) return true;
+            }
+        }
+        return false;
+    }
+
+    fn hasTag(entry: HostEntry, tag: []const u8) bool {
+        if (entry.meta) |m| {
+            for (m.tags) |t| {
+                if (std.mem.eql(u8, t, tag)) return true;
+            }
+        }
+        return false;
     }
 
     fn startStatusChecks(self: *Model) void {
@@ -200,21 +251,32 @@ pub const Model = struct {
 
         // Search mode
         if (self.search_active) {
+            var changed = false;
             switch (k.key) {
                 .escape => {
                     self.search_active = false;
                     self.search_text.clearRetainingCapacity();
+                    changed = true;
                 },
                 .backspace => {
-                    if (self.search_text.items.len > 0) _ = self.search_text.pop();
+                    if (self.search_text.items.len > 0) {
+                        _ = self.search_text.pop();
+                        changed = true;
+                    }
                 },
                 .enter => self.search_active = false,
                 .char => |c| {
-                    if (c < 128) self.search_text.append(self.pa, @intCast(c)) catch {};
+                    if (c < 128) {
+                        self.search_text.append(self.pa, @intCast(c)) catch {};
+                        changed = true;
+                    }
                 },
                 else => {},
             }
-            self.selected = 0;
+            if (changed) {
+                self.selected = 0;
+                self.rebuildVisibleIndices();
+            }
             return .none;
         }
 
@@ -250,9 +312,10 @@ pub const Model = struct {
                     self.screen = .add_form;
                 },
                 'e' => {
-                    if (self.hosts.items.len > 0 and self.selected < self.hosts.items.len) {
+                    if (self.selected < self.visible_indices.items.len) {
                         var form = host_form.FormState.init(self.pa);
-                        const entry = self.hosts.items[self.selected];
+                        const hi = self.visible_indices.items[self.selected];
+                        const entry = self.hosts.items[hi];
                         form.editing_host = entry.config.name;
                         // Load values
                         form.fields[0].setValue(entry.config.name) catch {};
@@ -271,14 +334,15 @@ pub const Model = struct {
                     }
                 },
                 'd' => {
-                    if (self.hosts.items.len > 0) self.confirm_delete = true;
+                    if (self.visible_indices.items.len > 0) self.confirm_delete = true;
                 },
                 'r' => self.startStatusChecks(),
                 's' => self.cycleSortMode(),
                 't' => self.cycleTagFilter(),
                 'f' => {
-                    if (self.selected < self.hosts.items.len) {
-                        const entry = self.hosts.items[self.selected];
+                    if (self.selected < self.visible_indices.items.len) {
+                        const hi = self.visible_indices.items[self.selected];
+                        const entry = self.hosts.items[hi];
                         const fwds = if (entry.meta) |m| m.port_forwards else &.{};
                         self.forward_state = forward_view.ForwardState.init(self.pa, entry.config.name, fwds);
                         self.screen = .forward_select;
@@ -288,7 +352,7 @@ pub const Model = struct {
                 else => {},
             },
             .enter => {
-                if (self.hosts.items.len > 0 and self.selected < self.hosts.items.len) {
+                if (self.selected < self.visible_indices.items.len) {
                     self.connectToSelected();
                     return .quit;
                 }
@@ -356,7 +420,7 @@ pub const Model = struct {
     }
 
     fn moveDown(self: *Model) void {
-        if (self.selected + 1 < self.hosts.items.len) self.selected += 1;
+        if (self.selected + 1 < self.visible_indices.items.len) self.selected += 1;
     }
 
     fn cycleSortMode(self: *Model) void {
@@ -366,6 +430,8 @@ pub const Model = struct {
             .tag => .name,
         };
         self.sortHosts();
+        // hosts.items has been reordered; visible_indices points to old slots.
+        self.rebuildVisibleIndices();
     }
 
     fn sortHosts(self: *Model) void {
@@ -398,11 +464,13 @@ pub const Model = struct {
         if (self.tag_filter_index > self.all_tags.items.len) self.tag_filter_index = 0;
         self.tag_filter = if (self.tag_filter_index == 0) null else self.all_tags.items[self.tag_filter_index - 1];
         self.selected = 0;
+        self.rebuildVisibleIndices();
     }
 
     fn connectToSelected(self: *Model) void {
-        if (self.selected >= self.hosts.items.len) return;
-        const entry = self.hosts.items[self.selected];
+        if (self.selected >= self.visible_indices.items.len) return;
+        const hi = self.visible_indices.items[self.selected];
+        const entry = self.hosts.items[hi];
         // Connection metadata is recorded by `directConnect` after the TUI
         // exits, so don't record here as well — that double-counts.
         self.connect_host = self.pa.dupe(u8, entry.config.name) catch null;
@@ -476,12 +544,13 @@ pub const Model = struct {
     }
 
     fn deleteSelectedHost(self: *Model) void {
-        if (self.selected >= self.hosts.items.len) return;
+        if (self.selected >= self.visible_indices.items.len) return;
 
         // Look up the config entry by name from the visible list so sorting
         // and tag-filtering don't desynchronise the display index from the
         // raw config order.
-        const selected_name = self.hosts.items[self.selected].config.name;
+        const hi = self.visible_indices.items[self.selected];
+        const selected_name = self.hosts.items[hi].config.name;
         var config_index: ?usize = null;
         for (self.config.hosts, 0..) |h, ci| {
             if (std.mem.eql(u8, h.name, selected_name)) {
@@ -495,8 +564,8 @@ pub const Model = struct {
             ssh_config.writeFile(self.pa, self.io, &self.config, self.config_path, self.backup_dir) catch {};
         }
 
+        // rebuildHostList → rebuildVisibleIndices clamps `selected` for us.
         self.rebuildHostList();
-        if (self.selected > 0 and self.selected >= self.hosts.items.len) self.selected -= 1;
         self.notification = "Host deleted";
         self.notification_timer = 30;
     }

@@ -39,26 +39,16 @@ pub fn render(model: *const App.Model, ctx: *const zz.Context) ![]const u8 {
     try lines.append(a, header);
     try lines.append(a, separator);
 
-    // Filtered host list
-    var display_idx: usize = 0;
-    for (model.hosts.items) |entry| {
-        // Search filter
-        if (model.search_text.items.len > 0) {
-            if (!matchesSearch(entry, model.search_text.items)) continue;
-        }
-
-        // Tag filter
-        if (model.tag_filter) |tag| {
-            if (!hasTag(entry, tag)) continue;
-        }
-
-        const is_selected = (display_idx == model.selected);
+    // Filtered host list (filter logic lives in app.zig now;
+    // model.visible_indices already reflects search + tag filters).
+    for (model.visible_indices.items, 0..) |hi, idx| {
+        const entry = model.hosts.items[hi];
+        const is_selected = (idx == model.selected);
         const line = try renderHostLine(a, ctx.io, entry, is_selected, w);
         try lines.append(a, line);
-        display_idx += 1;
     }
 
-    if (display_idx == 0) {
+    if (model.visible_indices.items.len == 0) {
         const empty_style = (zz.Style{}).fg(zz.Color.gray(10)).italic(true);
         try lines.append(a, try empty_style.render(a, "  No hosts found. Press 'a' to add one."));
     }
@@ -71,9 +61,10 @@ pub fn render(model: *const App.Model, ctx: *const zz.Context) ![]const u8 {
         const prompt = try std.fmt.allocPrint(a, " /{s}_", .{model.search_text.items});
         try lines.append(a, try search_style.render(a, prompt));
     } else if (model.confirm_delete) {
-        if (model.selected < model.hosts.items.len) {
+        if (model.selected < model.visible_indices.items.len) {
             const warn_style = (zz.Style{}).fg(zz.Color.fromRgb(255, 80, 80)).bold(true);
-            const name = model.hosts.items[model.selected].config.name;
+            const hi = model.visible_indices.items[model.selected];
+            const name = model.hosts.items[hi].config.name;
             const msg = try std.fmt.allocPrint(a, " Delete '{s}'? (y/n)", .{name});
             try lines.append(a, try warn_style.render(a, msg));
         }
@@ -98,31 +89,6 @@ pub fn render(model: *const App.Model, ctx: *const zz.Context) ![]const u8 {
     }
 
     return try zz.joinVertical(a, lines.items);
-}
-
-fn matchesSearch(entry: App.HostEntry, search: []const u8) bool {
-    if (std.mem.indexOf(u8, entry.config.name, search) != null) return true;
-    if (entry.config.hostname) |hn| {
-        if (std.mem.indexOf(u8, hn, search) != null) return true;
-    }
-    if (entry.config.user) |u| {
-        if (std.mem.indexOf(u8, u, search) != null) return true;
-    }
-    if (entry.meta) |m| {
-        for (m.tags) |tag| {
-            if (std.mem.indexOf(u8, tag, search) != null) return true;
-        }
-    }
-    return false;
-}
-
-fn hasTag(entry: App.HostEntry, tag: []const u8) bool {
-    if (entry.meta) |m| {
-        for (m.tags) |t| {
-            if (std.mem.eql(u8, t, tag)) return true;
-        }
-    }
-    return false;
 }
 
 fn renderHostLine(a: std.mem.Allocator, io: std.Io, entry: App.HostEntry, is_selected: bool, width: u16) ![]const u8 {
