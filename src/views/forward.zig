@@ -42,7 +42,7 @@ pub const ForwardState = struct {
 pub fn render(state: *const ForwardState, ctx: *const zz.Context) ![]const u8 {
     const a = ctx.allocator;
 
-    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan());
+    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan);
     const title = try std.fmt.allocPrint(a, " Connect to {s}", .{state.host_name});
     const title_rendered = try title_style.render(a, title);
 

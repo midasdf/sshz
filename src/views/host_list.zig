@@ -9,7 +9,7 @@ pub fn render(model: *const App.Model, ctx: *const zz.Context) ![]const u8 {
     const w = ctx.width;
 
     // Title
-    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan());
+    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan);
     const title = try title_style.render(a, " sshz - SSH Manager");
 
     // Host count

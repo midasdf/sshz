@@ -209,48 +209,50 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
     return try buf.toOwnedSlice(allocator);
 }
 
-pub fn readFile(allocator: std.mem.Allocator, path: []const u8) !MetaStore {
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !MetaStore {
+    const cwd = std.Io.Dir.cwd();
+    const content = cwd.readFileAlloc(io, allocator, path, .limited(1024 * 1024)) catch |err| switch (err) {
         error.FileNotFound => return MetaStore.initWith(allocator),
         else => return err,
     };
-    defer file.close();
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(content);
     return parse(allocator, content) catch MetaStore.initWith(allocator);
 }
 
-pub fn writeFile(allocator: std.mem.Allocator, store: *const MetaStore, path: []const u8) !void {
+pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, store: *const MetaStore, path: []const u8) !void {
     const content = try serialize(allocator, store);
     defer allocator.free(content);
 
     const dir_path = std.fs.path.dirname(path) orelse ".";
     const basename = std.fs.path.basename(path);
 
-    std.fs.cwd().makePath(dir_path) catch {};
+    const cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, dir_path) catch {};
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_name = std.fmt.bufPrint(&tmp_buf, ".{s}.tmp", .{basename}) catch return error.NameTooLong;
 
-    var dir_fd = try std.fs.cwd().openDir(dir_path, .{});
-    defer dir_fd.close();
+    var dir_fd = try cwd.openDir(io, dir_path, .{});
+    defer dir_fd.close(io);
 
-    const tmp_file = try dir_fd.createFile(tmp_name, .{});
-    tmp_file.writeAll(content) catch |e| {
-        tmp_file.close();
-        return e;
-    };
-    tmp_file.close();
+    {
+        const tmp_file = try dir_fd.createFile(io, tmp_name, .{});
+        defer tmp_file.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var w = tmp_file.writer(io, &write_buf);
+        try w.interface.writeAll(content);
+        try w.interface.flush();
+    }
 
-    try dir_fd.rename(tmp_name, basename);
+    try std.Io.Dir.rename(dir_fd, tmp_name, dir_fd, basename, io);
 }
 
-pub fn defaultMetaPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+pub fn defaultMetaPath(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {
+    const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(allocator, "{s}/.config/sshz/meta.json", .{home});
 }
 
-pub fn defaultBackupDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+pub fn defaultBackupDir(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {
+    const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(allocator, "{s}/.config/sshz/backups", .{home});
 }

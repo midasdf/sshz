@@ -48,6 +48,8 @@ pub const Model = struct {
     connect_host: ?[]const u8 = null,
     checker_generation: u32 = 0,
     pa: std.mem.Allocator,
+    io: std.Io = undefined,
+    env: *const std.process.Environ.Map = undefined,
 
     pub const SortMode = enum { name, recent, tag };
 
@@ -58,27 +60,29 @@ pub const Model = struct {
 
     pub fn init(self: *Model, ctx: *zz.Context) zz.Cmd(Msg) {
         self.pa = ctx.persistent_allocator;
+        self.io = ctx.io;
+        self.env = ctx.environ_map;
 
         self.hosts = .{};
         self.search_text = .{};
         self.all_tags = .{};
 
         // Load config
-        self.config_path = ssh_config.defaultConfigPath(self.pa) catch "/dev/null";
-        self.meta_path = meta_mod.defaultMetaPath(self.pa) catch "/dev/null";
-        self.backup_dir = meta_mod.defaultBackupDir(self.pa) catch "/dev/null";
+        self.config_path = ssh_config.defaultConfigPath(self.pa, self.env) catch "/dev/null";
+        self.meta_path = meta_mod.defaultMetaPath(self.pa, self.env) catch "/dev/null";
+        self.backup_dir = meta_mod.defaultBackupDir(self.pa, self.env) catch "/dev/null";
 
-        self.config = ssh_config.readFile(self.pa, self.config_path) catch ssh_config.Config{
+        self.config = ssh_config.readFile(self.pa, self.io, self.config_path) catch ssh_config.Config{
             .hosts = &.{},
             .raw_lines = &.{},
         };
-        self.meta_store = meta_mod.readFile(self.pa, self.meta_path) catch meta_mod.MetaStore.initWith(self.pa);
+        self.meta_store = meta_mod.readFile(self.pa, self.io, self.meta_path) catch meta_mod.MetaStore.initWith(self.pa);
 
         self.rebuildHostList();
 
         // Status checker
         self.result_queue = checker_mod.ResultQueue.init(self.pa);
-        self.status_checker = checker_mod.StatusChecker.init(&self.result_queue, self.pa);
+        self.status_checker = checker_mod.StatusChecker.init(&self.result_queue, self.pa, self.io);
         self.startStatusChecks();
         self.collectTags();
 
@@ -395,7 +399,7 @@ pub const Model = struct {
         if (self.selected >= self.hosts.items.len) return;
         const entry = self.hosts.items[self.selected];
         self.meta_store.recordConnection(self.pa, entry.config.name) catch {};
-        meta_mod.writeFile(self.pa, &self.meta_store, self.meta_path) catch {};
+        meta_mod.writeFile(self.pa, self.io, &self.meta_store, self.meta_path) catch {};
         self.connect_host = self.pa.dupe(u8, entry.config.name) catch null;
     }
 
@@ -446,7 +450,7 @@ pub const Model = struct {
         }
 
         ssh_config.addHost(self.pa, &self.config, new_host) catch {};
-        ssh_config.writeFile(self.pa, &self.config, self.config_path, self.backup_dir) catch {};
+        ssh_config.writeFile(self.pa, self.io, &self.config, self.config_path, self.backup_dir) catch {};
 
         // Save tags
         if (tags_val.len > 0) {
@@ -459,7 +463,7 @@ pub const Model = struct {
             }
             self.meta_store.setTags(self.pa, name, tags.items) catch {};
         }
-        meta_mod.writeFile(self.pa, &self.meta_store, self.meta_path) catch {};
+        meta_mod.writeFile(self.pa, self.io, &self.meta_store, self.meta_path) catch {};
 
         self.rebuildHostList();
         self.collectTags();
@@ -480,7 +484,7 @@ pub const Model = struct {
 
         if (config_index) |ci| {
             ssh_config.removeHost(self.pa, &self.config, ci) catch {};
-            ssh_config.writeFile(self.pa, &self.config, self.config_path, self.backup_dir) catch {};
+            ssh_config.writeFile(self.pa, self.io, &self.config, self.config_path, self.backup_dir) catch {};
         }
 
         self.rebuildHostList();

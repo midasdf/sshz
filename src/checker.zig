@@ -56,14 +56,16 @@ pub const StatusChecker = struct {
     dispatcher_thread: ?std.Thread = null,
     generation: std.atomic.Value(u32),
     allocator: std.mem.Allocator,
+    io: std.Io,
 
-    pub fn init(queue: *ResultQueue, allocator: std.mem.Allocator) StatusChecker {
+    pub fn init(queue: *ResultQueue, allocator: std.mem.Allocator, io: std.Io) StatusChecker {
         return .{
             .queue = queue,
             .active_count = std.atomic.Value(u32).init(0),
             .shutdown = std.atomic.Value(bool).init(false),
             .generation = std.atomic.Value(u32).init(0),
             .allocator = allocator,
+            .io = io,
         };
     }
 
@@ -145,13 +147,14 @@ pub const StatusChecker = struct {
         defer _ = self.active_count.fetchSub(1, .release);
         if (self.shutdown.load(.acquire)) return;
 
-        const status = tcpCheck(hostname, port);
+        const status = tcpCheck(self.io, hostname, port);
         self.queue.push(.{ .host_index = host_index, .status = status, .generation = gen });
     }
 };
 
-fn tcpCheck(hostname: []const u8, port: u16) HostStatus {
-    const stream = std.net.tcpConnectToHost(std.heap.page_allocator, hostname, port) catch return .offline;
-    stream.close();
+fn tcpCheck(io: std.Io, hostname: []const u8, port: u16) HostStatus {
+    const host = std.Io.net.HostName.init(hostname) catch return .offline;
+    const stream = host.connect(io, port, .{}) catch return .offline;
+    stream.close(io);
     return .online;
 }

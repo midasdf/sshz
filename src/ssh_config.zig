@@ -285,16 +285,15 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
     config.hosts = try new_hosts.toOwnedSlice(allocator);
 }
 
-pub fn readFile(allocator: std.mem.Allocator, path: []const u8) !Config {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024);
+pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Config {
+    const cwd = std.Io.Dir.cwd();
+    const content = try cwd.readFileAlloc(io, allocator, path, .limited(1024 * 1024));
     defer allocator.free(content);
     return parse(allocator, content);
 }
 
-pub fn writeFile(allocator: std.mem.Allocator, config: *const Config, path: []const u8, backup_dir: []const u8) !void {
-    backupFile(allocator, path, backup_dir) catch {};
+pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, config: *const Config, path: []const u8, backup_dir: []const u8) !void {
+    backupFile(allocator, io, path, backup_dir) catch {};
 
     const content = try serialize(allocator, config);
     defer allocator.free(content);
@@ -305,24 +304,28 @@ pub fn writeFile(allocator: std.mem.Allocator, config: *const Config, path: []co
     var tmp_name_buf: [256]u8 = undefined;
     const tmp_name = std.fmt.bufPrint(&tmp_name_buf, ".{s}.tmp", .{basename}) catch return error.NameTooLong;
 
-    var dir_fd = try std.fs.cwd().openDir(dir_path, .{});
-    defer dir_fd.close();
+    const cwd = std.Io.Dir.cwd();
+    var dir_fd = try cwd.openDir(io, dir_path, .{});
+    defer dir_fd.close(io);
 
-    const tmp_file = try dir_fd.createFile(tmp_name, .{});
-    tmp_file.writeAll(content) catch |e| {
-        tmp_file.close();
-        return e;
-    };
-    tmp_file.close();
+    {
+        const tmp_file = try dir_fd.createFile(io, tmp_name, .{});
+        defer tmp_file.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var w = tmp_file.writer(io, &write_buf);
+        try w.interface.writeAll(content);
+        try w.interface.flush();
+    }
 
-    try dir_fd.rename(tmp_name, basename);
+    try std.Io.Dir.rename(dir_fd, tmp_name, dir_fd, basename, io);
 }
 
-fn backupFile(allocator: std.mem.Allocator, source_path: []const u8, backup_dir: []const u8) !void {
-    std.fs.cwd().makePath(backup_dir) catch {};
+fn backupFile(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, backup_dir: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    cwd.createDirPath(io, backup_dir) catch {};
 
-    const source = std.fs.cwd().openFile(source_path, .{}) catch return;
-    defer source.close();
+    const content = cwd.readFileAlloc(io, allocator, source_path, .limited(1024 * 1024)) catch return;
+    defer allocator.free(content);
 
     const ts = std.time.timestamp();
     var name_buf: [256]u8 = undefined;
@@ -331,19 +334,22 @@ fn backupFile(allocator: std.mem.Allocator, source_path: []const u8, backup_dir:
     var path_buf: [512]u8 = undefined;
     const backup_path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ backup_dir, backup_name }) catch return;
 
-    const content = source.readToEndAlloc(allocator, 1024 * 1024) catch return;
-    defer allocator.free(content);
+    {
+        const dest = cwd.createFile(io, backup_path, .{}) catch return;
+        defer dest.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var w = dest.writer(io, &write_buf);
+        w.interface.writeAll(content) catch return;
+        w.interface.flush() catch return;
+    }
 
-    const dest = std.fs.cwd().createFile(backup_path, .{}) catch return;
-    defer dest.close();
-    dest.writeAll(content) catch {};
-
-    rotateBackups(allocator, backup_dir) catch {};
+    rotateBackups(allocator, io, backup_dir) catch {};
 }
 
-fn rotateBackups(allocator: std.mem.Allocator, backup_dir: []const u8) !void {
-    var dir = try std.fs.cwd().openDir(backup_dir, .{ .iterate = true });
-    defer dir.close();
+fn rotateBackups(allocator: std.mem.Allocator, io: std.Io, backup_dir: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    var dir = try cwd.openDir(io, backup_dir, .{ .iterate = true });
+    defer dir.close(io);
 
     var entries: std.ArrayList([]const u8) = .{};
     defer {
@@ -352,7 +358,7 @@ fn rotateBackups(allocator: std.mem.Allocator, backup_dir: []const u8) !void {
     }
 
     var it = dir.iterate();
-    while (try it.next()) |entry| {
+    while (try it.next(io)) |entry| {
         if (std.mem.startsWith(u8, entry.name, "ssh_config_")) {
             try entries.append(allocator, try allocator.dupe(u8, entry.name));
         }
@@ -368,11 +374,11 @@ fn rotateBackups(allocator: std.mem.Allocator, backup_dir: []const u8) !void {
 
     const to_delete = entries.items.len - 10;
     for (entries.items[0..to_delete]) |name| {
-        dir.deleteFile(name) catch {};
+        dir.deleteFile(io, name) catch {};
     }
 }
 
-pub fn defaultConfigPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+pub fn defaultConfigPath(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {
+    const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(allocator, "{s}/.ssh/config", .{home});
 }
