@@ -41,10 +41,15 @@ pub const Host = struct {
 pub const Config = struct {
     hosts: []Host,
     raw_lines: [][]const u8,
+    /// Backing storage for slices in `hosts` and `raw_lines` that originate
+    /// from `parse(content)`. Transferred to `Config` by `readFile` so the
+    /// borrowed slices stay valid for the Config's lifetime.
+    raw_buffer: []u8 = &[_]u8{},
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
         allocator.free(self.hosts);
         allocator.free(self.raw_lines);
+        if (self.raw_buffer.len > 0) allocator.free(self.raw_buffer);
     }
 
     pub fn effectiveHostname(host: Host) []const u8 {
@@ -288,8 +293,12 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
 pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Config {
     const cwd = std.Io.Dir.cwd();
     const content = try cwd.readFileAlloc(io, path, allocator, .limited(1024 * 1024));
-    defer allocator.free(content);
-    return parse(allocator, content);
+    errdefer allocator.free(content);
+    var config = try parse(allocator, content);
+    // Transfer ownership: hosts/raw_lines borrow from `content`, so the
+    // Config must keep the buffer alive until deinit.
+    config.raw_buffer = content;
+    return config;
 }
 
 pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, config: *const Config, path: []const u8, backup_dir: []const u8) !void {

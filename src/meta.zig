@@ -157,6 +157,28 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
     return store;
 }
 
+/// Append a JSON string literal (including surrounding quotes) with proper
+/// escaping for `"`, `\`, and ASCII control characters.
+fn appendJsonString(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, s: []const u8) !void {
+    try buf.append(allocator, '"');
+    for (s) |c| switch (c) {
+        '"' => try buf.appendSlice(allocator, "\\\""),
+        '\\' => try buf.appendSlice(allocator, "\\\\"),
+        '\n' => try buf.appendSlice(allocator, "\\n"),
+        '\r' => try buf.appendSlice(allocator, "\\r"),
+        '\t' => try buf.appendSlice(allocator, "\\t"),
+        0x08 => try buf.appendSlice(allocator, "\\b"),
+        0x0C => try buf.appendSlice(allocator, "\\f"),
+        0x00...0x07, 0x0B, 0x0E...0x1F => {
+            var hex_buf: [6]u8 = undefined;
+            const hex = std.fmt.bufPrint(&hex_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+            try buf.appendSlice(allocator, hex);
+        },
+        else => try buf.append(allocator, c),
+    };
+    try buf.append(allocator, '"');
+}
+
 pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const u8 {
     var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
@@ -172,15 +194,13 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
     while (it.next()) |entry| {
         if (!first) try buf.appendSlice(allocator, ",");
         first = false;
-        try buf.appendSlice(allocator, "\n    \"");
-        try buf.appendSlice(allocator, entry.key_ptr.*);
-        try buf.appendSlice(allocator, "\": {\n      \"tags\": [");
+        try buf.appendSlice(allocator, "\n    ");
+        try appendJsonString(&buf, allocator, entry.key_ptr.*);
+        try buf.appendSlice(allocator, ": {\n      \"tags\": [");
 
         for (entry.value_ptr.tags, 0..) |tag, i| {
             if (i > 0) try buf.appendSlice(allocator, ", ");
-            try buf.appendSlice(allocator, "\"");
-            try buf.appendSlice(allocator, tag);
-            try buf.appendSlice(allocator, "\"");
+            try appendJsonString(&buf, allocator, tag);
         }
 
         try buf.appendSlice(allocator, "],\n      \"last_connected\": ");
@@ -193,13 +213,13 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
 
         for (entry.value_ptr.port_forwards, 0..) |fwd, i| {
             if (i > 0) try buf.appendSlice(allocator, ", ");
-            try buf.appendSlice(allocator, "{\"type\": \"");
-            try buf.appendSlice(allocator, fwd.forward_type);
-            try buf.appendSlice(allocator, "\", \"bind\": \"");
-            try buf.appendSlice(allocator, fwd.bind);
-            try buf.appendSlice(allocator, "\", \"target\": \"");
-            try buf.appendSlice(allocator, fwd.target);
-            try buf.appendSlice(allocator, "\"}");
+            try buf.appendSlice(allocator, "{\"type\": ");
+            try appendJsonString(&buf, allocator, fwd.forward_type);
+            try buf.appendSlice(allocator, ", \"bind\": ");
+            try appendJsonString(&buf, allocator, fwd.bind);
+            try buf.appendSlice(allocator, ", \"target\": ");
+            try appendJsonString(&buf, allocator, fwd.target);
+            try buf.append(allocator, '}');
         }
 
         try buf.appendSlice(allocator, "]\n    }");

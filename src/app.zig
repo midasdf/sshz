@@ -403,8 +403,8 @@ pub const Model = struct {
     fn connectToSelected(self: *Model) void {
         if (self.selected >= self.hosts.items.len) return;
         const entry = self.hosts.items[self.selected];
-        self.meta_store.recordConnection(self.pa, self.io, entry.config.name) catch {};
-        meta_mod.writeFile(self.pa, self.io, &self.meta_store, self.meta_path) catch {};
+        // Connection metadata is recorded by `directConnect` after the TUI
+        // exits, so don't record here as well — that double-counts.
         self.connect_host = self.pa.dupe(u8, entry.config.name) catch null;
     }
 
@@ -457,17 +457,16 @@ pub const Model = struct {
         ssh_config.addHost(self.pa, &self.config, new_host) catch {};
         ssh_config.writeFile(self.pa, self.io, &self.config, self.config_path, self.backup_dir) catch {};
 
-        // Save tags
-        if (tags_val.len > 0) {
-            var tags: std.ArrayList([]const u8) = .empty;
-            defer tags.deinit(self.pa);
-            var tag_it = std.mem.splitScalar(u8, tags_val, ',');
-            while (tag_it.next()) |tag| {
-                const trimmed = std.mem.trim(u8, tag, " ");
-                if (trimmed.len > 0) tags.append(self.pa, trimmed) catch {};
-            }
-            self.meta_store.setTags(self.pa, name, tags.items) catch {};
+        // Save tags. Always call setTags so clearing the tags field in the
+        // edit form actually persists an empty tag list.
+        var tags: std.ArrayList([]const u8) = .empty;
+        defer tags.deinit(self.pa);
+        var tag_it = std.mem.splitScalar(u8, tags_val, ',');
+        while (tag_it.next()) |tag| {
+            const trimmed = std.mem.trim(u8, tag, " ");
+            if (trimmed.len > 0) tags.append(self.pa, trimmed) catch {};
         }
+        self.meta_store.setTags(self.pa, name, tags.items) catch {};
         meta_mod.writeFile(self.pa, self.io, &self.meta_store, self.meta_path) catch {};
 
         self.rebuildHostList();
@@ -479,15 +478,16 @@ pub const Model = struct {
     fn deleteSelectedHost(self: *Model) void {
         if (self.selected >= self.hosts.items.len) return;
 
+        // Look up the config entry by name from the visible list so sorting
+        // and tag-filtering don't desynchronise the display index from the
+        // raw config order.
+        const selected_name = self.hosts.items[self.selected].config.name;
         var config_index: ?usize = null;
-        var display_i: usize = 0;
         for (self.config.hosts, 0..) |h, ci| {
-            if (h.is_wildcard) continue;
-            if (display_i == self.selected) {
+            if (std.mem.eql(u8, h.name, selected_name)) {
                 config_index = ci;
                 break;
             }
-            display_i += 1;
         }
 
         if (config_index) |ci| {
