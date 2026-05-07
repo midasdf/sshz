@@ -5,42 +5,40 @@ const app = @import("app");
 
 const version = "0.1.0";
 
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const arena_allocator = init.arena.allocator();
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
+    const args = try init.minimal.args.toSlice(arena_allocator);
 
     if (args.len >= 2 and std.mem.eql(u8, args[1], "--help")) {
-        printUsage();
+        printUsage(init.io);
         return;
     }
 
     if (args.len >= 2 and std.mem.eql(u8, args[1], "--version")) {
-        const file = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+        const file = std.Io.File.stdout();
         var buf: [256]u8 = undefined;
-        var w = file.writer(&buf);
+        var w = file.writer(init.io, &buf);
         try w.interface.print("sshz {s}\n", .{version});
         try w.interface.flush();
         return;
     }
 
     // sshz <host> [command...] — direct connect
-    if (args.len >= 2 and args[1][0] != '-') {
-        try directConnect(allocator, args[1], args[2..]);
+    if (args.len >= 2 and args[1].len > 0 and args[1][0] != '-') {
+        try directConnect(allocator, init.io, init.environ_map, args[1], args[2..]);
         return;
     }
 
     // sshz — launch TUI
-    try launchTui(allocator);
+    try launchTui(init);
 }
 
-fn printUsage() void {
-    const file = std.fs.File{ .handle = std.posix.STDOUT_FILENO };
+fn printUsage(io: std.Io) void {
+    const file = std.Io.File.stdout();
     var buf: [4096]u8 = undefined;
-    var w = file.writer(&buf);
+    var w = file.writer(io, &buf);
     w.interface.print(
         \\SSHZ - SSH Connection Manager
         \\
@@ -55,8 +53,9 @@ fn printUsage() void {
     w.interface.flush() catch {};
 }
 
-fn launchTui(allocator: std.mem.Allocator) !void {
-    var program = try zz.Program(app.Model).init(allocator);
+fn launchTui(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    var program = try zz.Program(app.Model).init(init.gpa, init.io, init.environ_map);
     try program.run();
 
     // Grab connect_host before deinit frees it
@@ -73,23 +72,23 @@ fn launchTui(allocator: std.mem.Allocator) !void {
     program.deinit();
 
     if (connect_host) |host_name| {
-        try directConnect(allocator, host_name, &.{});
+        try directConnect(allocator, init.io, init.environ_map, host_name, &.{});
     }
 }
 
-fn directConnect(allocator: std.mem.Allocator, host_name: []const u8, extra_args: []const [:0]u8) !void {
+fn directConnect(allocator: std.mem.Allocator, io: std.Io, env: *const std.process.Environ.Map, host_name: []const u8, extra_args: []const [:0]const u8) !void {
     // Record connection in meta.json
-    const meta_path = try meta_mod.defaultMetaPath(allocator);
+    const meta_path = try meta_mod.defaultMetaPath(allocator, env);
     defer allocator.free(meta_path);
 
-    var store = try meta_mod.readFile(allocator, meta_path);
+    var store = try meta_mod.readFile(allocator, io, meta_path);
     defer store.deinit(allocator);
 
-    try store.recordConnection(allocator, host_name);
-    meta_mod.writeFile(allocator, &store, meta_path) catch {};
+    try store.recordConnection(allocator, io, host_name);
+    meta_mod.writeFile(allocator, io, &store, meta_path) catch {};
 
     // Build args
-    var argv: std.ArrayList([]const u8) = .{};
+    var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
     try argv.append(allocator, "ssh");
@@ -97,15 +96,16 @@ fn directConnect(allocator: std.mem.Allocator, host_name: []const u8, extra_args
     for (extra_args) |arg| try argv.append(allocator, arg);
 
     // Exec ssh
-    var child = std.process.Child.init(argv.items, allocator);
-    child.stdin_behavior = .Inherit;
-    child.stdout_behavior = .Inherit;
-    child.stderr_behavior = .Inherit;
-    try child.spawn();
-    const term = try child.wait();
+    var child = try std.process.spawn(io, .{
+        .argv = argv.items,
+        .stdin = .inherit,
+        .stdout = .inherit,
+        .stderr = .inherit,
+    });
+    const term = try child.wait(io);
 
     switch (term) {
-        .Exited => |code| if (code != 0) std.process.exit(code),
+        .exited => |code| if (code != 0) std.process.exit(code),
         else => std.process.exit(1),
     }
 }

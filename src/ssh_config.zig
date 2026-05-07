@@ -39,11 +39,17 @@ pub const Host = struct {
 };
 
 pub const Config = struct {
+    /// Each Host's string fields (`name`, `hostname`, `user`, ...) are
+    /// owned by `allocator`. `parse`/`addHost` allocate copies; `removeHost`
+    /// and `deinit` free them via `freeHostStrings`.
     hosts: []Host,
+    /// Each `raw_lines` element is owned by `allocator`.
     raw_lines: [][]const u8,
 
     pub fn deinit(self: *Config, allocator: std.mem.Allocator) void {
+        for (self.hosts) |h| freeHostStrings(allocator, h);
         allocator.free(self.hosts);
+        for (self.raw_lines) |line| allocator.free(line);
         allocator.free(self.raw_lines);
     }
 
@@ -75,20 +81,44 @@ fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     return true;
 }
 
-pub fn parse(allocator: std.mem.Allocator, content: []const u8) !Config {
-    var hosts: std.ArrayList(Host) = .{};
-    defer hosts.deinit(allocator);
+fn freeHostStrings(allocator: std.mem.Allocator, host: Host) void {
+    allocator.free(host.name);
+    if (host.hostname) |v| allocator.free(v);
+    if (host.user) |v| allocator.free(v);
+    if (host.identity_file) |v| allocator.free(v);
+    if (host.proxy_jump) |v| allocator.free(v);
+    if (host.proxy_command) |v| allocator.free(v);
+    if (host.local_forward) |v| allocator.free(v);
+    if (host.remote_forward) |v| allocator.free(v);
+    if (host.dynamic_forward) |v| allocator.free(v);
+}
 
-    var lines_list: std.ArrayList([]const u8) = .{};
-    defer lines_list.deinit(allocator);
+pub fn parse(allocator: std.mem.Allocator, content: []const u8) !Config {
+    var hosts: std.ArrayList(Host) = .empty;
+    errdefer {
+        for (hosts.items) |h| freeHostStrings(allocator, h);
+        hosts.deinit(allocator);
+    }
+
+    var lines_list: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (lines_list.items) |line| allocator.free(line);
+        lines_list.deinit(allocator);
+    }
+
+    var current_host: ?Host = null;
+    errdefer if (current_host) |h| freeHostStrings(allocator, h);
 
     var line_iter = std.mem.splitScalar(u8, content, '\n');
     var line_num: usize = 0;
-    var current_host: ?Host = null;
     var in_match_block: bool = false;
 
     while (line_iter.next()) |line| {
-        try lines_list.append(allocator, line);
+        const owned_line = try allocator.dupe(u8, line);
+        {
+            errdefer allocator.free(owned_line);
+            try lines_list.append(allocator, owned_line);
+        }
         const trimmed = std.mem.trim(u8, line, " \t\r");
 
         if (trimmed.len == 0 or trimmed[0] == '#') {
@@ -108,9 +138,10 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !Config {
         if (startsWithIgnoreCase(trimmed, "Match ") or
             startsWithIgnoreCase(trimmed, "Match\t"))
         {
-            if (current_host) |*h| {
-                h.end_line = line_num;
-                try hosts.append(allocator, h.*);
+            if (current_host) |h| {
+                var hh = h;
+                hh.end_line = line_num;
+                try hosts.append(allocator, hh);
                 current_host = null;
             }
             in_match_block = true;
@@ -125,29 +156,34 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !Config {
 
         if (std.ascii.eqlIgnoreCase(kv.key, "Host")) {
             in_match_block = false;
-            if (current_host) |*h| {
-                h.end_line = line_num;
-                try hosts.append(allocator, h.*);
+            if (current_host) |h| {
+                var hh = h;
+                hh.end_line = line_num;
+                try hosts.append(allocator, hh);
+                current_host = null;
             }
             const is_wildcard = std.mem.indexOfScalar(u8, kv.value, '*') != null or
                 std.mem.indexOfScalar(u8, kv.value, '?') != null;
+            const name_dup = try allocator.dupe(u8, kv.value);
             current_host = Host{
-                .name = kv.value,
+                .name = name_dup,
                 .start_line = line_num,
                 .is_wildcard = is_wildcard,
             };
         } else if (!in_match_block) {
             if (current_host) |*h| {
-                setHostField(h, kv.key, kv.value);
+                try setHostField(allocator, h, kv.key, kv.value);
             }
         }
 
         line_num += 1;
     }
 
-    if (current_host) |*h| {
-        h.end_line = line_num;
-        try hosts.append(allocator, h.*);
+    if (current_host) |h| {
+        var hh = h;
+        hh.end_line = line_num;
+        try hosts.append(allocator, hh);
+        current_host = null;
     }
 
     return Config{
@@ -172,32 +208,50 @@ fn parseKeyValue(line: []const u8) ?KeyValue {
     return KeyValue{ .key = key, .value = value };
 }
 
-fn setHostField(h: *Host, key: []const u8, value: []const u8) void {
+fn setHostField(allocator: std.mem.Allocator, h: *Host, key: []const u8, value: []const u8) !void {
+    // Pattern: dupe first, then free old (so a failed dup doesn't dangle the
+    // old value). Repeated keys in the same Host block are rare but legal.
     if (std.ascii.eqlIgnoreCase(key, "HostName")) {
-        h.hostname = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.hostname) |old| allocator.free(old);
+        h.hostname = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "User")) {
-        h.user = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.user) |old| allocator.free(old);
+        h.user = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "Port")) {
         h.port = std.fmt.parseInt(u16, value, 10) catch null;
     } else if (std.ascii.eqlIgnoreCase(key, "IdentityFile")) {
-        h.identity_file = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.identity_file) |old| allocator.free(old);
+        h.identity_file = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "ProxyJump")) {
-        h.proxy_jump = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.proxy_jump) |old| allocator.free(old);
+        h.proxy_jump = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "ProxyCommand")) {
-        h.proxy_command = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.proxy_command) |old| allocator.free(old);
+        h.proxy_command = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "LocalForward")) {
-        h.local_forward = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.local_forward) |old| allocator.free(old);
+        h.local_forward = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "RemoteForward")) {
-        h.remote_forward = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.remote_forward) |old| allocator.free(old);
+        h.remote_forward = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "DynamicForward")) {
-        h.dynamic_forward = value;
+        const new_val = try allocator.dupe(u8, value);
+        if (h.dynamic_forward) |old| allocator.free(old);
+        h.dynamic_forward = new_val;
     } else if (std.ascii.eqlIgnoreCase(key, "AddressFamily")) {
         h.address_family = AddressFamily.fromString(value);
     }
 }
 
 pub fn serialize(allocator: std.mem.Allocator, config: *const Config) ![]const u8 {
-    var result: std.ArrayList(u8) = .{};
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     for (config.raw_lines) |line| {
@@ -208,15 +262,25 @@ pub fn serialize(allocator: std.mem.Allocator, config: *const Config) ![]const u
     return try result.toOwnedSlice(allocator);
 }
 
+/// Append `host` to `config`. `addHost` takes ownership: it deep-copies
+/// every string field of `host` and every line in `config.raw_lines`, so
+/// callers may pass borrowed slices (form input, string literals) safely.
 pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void {
-    var new_lines: std.ArrayList([]const u8) = .{};
-    defer new_lines.deinit(allocator);
-    for (config.raw_lines) |l| try new_lines.append(allocator, l);
-    try new_lines.append(allocator, "");
+    // Phase 1: build all new owned state in locals. On any failure, the
+    // errdefers free everything we allocated; `config` stays untouched.
 
-    // Track where the new host block starts
+    var new_lines: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (new_lines.items) |s| allocator.free(s);
+        new_lines.deinit(allocator);
+    }
+
+    for (config.raw_lines) |l| {
+        try new_lines.append(allocator, try allocator.dupe(u8, l));
+    }
+    try new_lines.append(allocator, try allocator.dupe(u8, ""));
+
     const host_start_line = new_lines.items.len;
-
     try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "Host {s}", .{host.name}));
     if (host.hostname) |v| {
         try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "    HostName {s}", .{v}));
@@ -236,21 +300,51 @@ pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void 
     if (host.address_family) |af| {
         try new_lines.append(allocator, try std.fmt.allocPrint(allocator, "    AddressFamily {s}", .{af.toString()}));
     }
-
     const host_end_line = new_lines.items.len;
 
-    allocator.free(config.raw_lines);
-    config.raw_lines = try new_lines.toOwnedSlice(allocator);
+    var new_host: Host = .{
+        .name = try allocator.dupe(u8, host.name),
+        .start_line = host_start_line,
+        .end_line = host_end_line,
+        .is_wildcard = host.is_wildcard,
+        .port = host.port,
+        .address_family = host.address_family,
+    };
+    errdefer freeHostStrings(allocator, new_host);
 
-    var new_hosts: std.ArrayList(Host) = .{};
-    defer new_hosts.deinit(allocator);
+    if (host.hostname) |v| new_host.hostname = try allocator.dupe(u8, v);
+    if (host.user) |v| new_host.user = try allocator.dupe(u8, v);
+    if (host.identity_file) |v| new_host.identity_file = try allocator.dupe(u8, v);
+    if (host.proxy_jump) |v| new_host.proxy_jump = try allocator.dupe(u8, v);
+    if (host.proxy_command) |v| new_host.proxy_command = try allocator.dupe(u8, v);
+    if (host.local_forward) |v| new_host.local_forward = try allocator.dupe(u8, v);
+    if (host.remote_forward) |v| new_host.remote_forward = try allocator.dupe(u8, v);
+    if (host.dynamic_forward) |v| new_host.dynamic_forward = try allocator.dupe(u8, v);
+
+    var new_hosts: std.ArrayList(Host) = .empty;
+    errdefer new_hosts.deinit(allocator);
     for (config.hosts) |h| try new_hosts.append(allocator, h);
-    var new_host = host;
-    new_host.start_line = host_start_line;
-    new_host.end_line = host_end_line;
     try new_hosts.append(allocator, new_host);
+
+    // Phase 2: commit. Past `toOwnedSlice` only no-fail operations remain.
+    const new_lines_slice = try new_lines.toOwnedSlice(allocator);
+    const new_hosts_slice = new_hosts.toOwnedSlice(allocator) catch |err| {
+        // Couldn't commit hosts — release the lines we just took ownership of
+        // (they reference the allocator-owned strings we duped above).
+        for (new_lines_slice) |s| allocator.free(s);
+        allocator.free(new_lines_slice);
+        return err;
+    };
+
+    // Free old raw_lines content (each element was allocator-owned) and array.
+    for (config.raw_lines) |l| allocator.free(l);
+    allocator.free(config.raw_lines);
+    config.raw_lines = new_lines_slice;
+
+    // Old `config.hosts` array is replaced; the host structs inside still
+    // reference their own owned strings, which transfer through `new_hosts`.
     allocator.free(config.hosts);
-    config.hosts = try new_hosts.toOwnedSlice(allocator);
+    config.hosts = new_hosts_slice;
 }
 
 pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !void {
@@ -259,19 +353,18 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
     const host = config.hosts[index];
     const start = host.start_line;
     const end = @min(host.end_line, config.raw_lines.len);
+    const removed_count = end - start;
 
-    var new_lines: std.ArrayList([]const u8) = .{};
-    defer new_lines.deinit(allocator);
+    // Phase 1: build new arrays without committing.
+    var new_lines: std.ArrayList([]const u8) = .empty;
+    errdefer new_lines.deinit(allocator);
     for (config.raw_lines, 0..) |line, i| {
         if (i >= start and i < end) continue;
         try new_lines.append(allocator, line);
     }
-    allocator.free(config.raw_lines);
-    config.raw_lines = try new_lines.toOwnedSlice(allocator);
 
-    const removed_count = end - start;
-    var new_hosts: std.ArrayList(Host) = .{};
-    defer new_hosts.deinit(allocator);
+    var new_hosts: std.ArrayList(Host) = .empty;
+    errdefer new_hosts.deinit(allocator);
     for (config.hosts, 0..) |h, i| {
         if (i == index) continue;
         var adjusted = h;
@@ -281,20 +374,37 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
         }
         try new_hosts.append(allocator, adjusted);
     }
+
+    // Phase 2: commit. Take ownership of the new slices, then free the
+    // strings that are no longer referenced.
+    const new_lines_slice = try new_lines.toOwnedSlice(allocator);
+    const new_hosts_slice = new_hosts.toOwnedSlice(allocator) catch |err| {
+        allocator.free(new_lines_slice);
+        return err;
+    };
+
+    // Free strings of the lines being dropped, then the old array.
+    for (config.raw_lines[start..end]) |line| allocator.free(line);
+    allocator.free(config.raw_lines);
+    config.raw_lines = new_lines_slice;
+
+    // Free the removed host's owned string fields, then the old array.
+    freeHostStrings(allocator, host);
     allocator.free(config.hosts);
-    config.hosts = try new_hosts.toOwnedSlice(allocator);
+    config.hosts = new_hosts_slice;
 }
 
-pub fn readFile(allocator: std.mem.Allocator, path: []const u8) !Config {
-    const file = try std.fs.cwd().openFile(path, .{});
-    defer file.close();
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024);
+pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !Config {
+    const cwd = std.Io.Dir.cwd();
+    const content = try cwd.readFileAlloc(io, path, allocator, .limited(1024 * 1024));
     defer allocator.free(content);
+    // `parse` deep-copies all strings out of `content`, so it's safe to free
+    // the buffer here.
     return parse(allocator, content);
 }
 
-pub fn writeFile(allocator: std.mem.Allocator, config: *const Config, path: []const u8, backup_dir: []const u8) !void {
-    backupFile(allocator, path, backup_dir) catch {};
+pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, config: *const Config, path: []const u8, backup_dir: []const u8) !void {
+    backupFile(allocator, io, path, backup_dir) catch {};
 
     const content = try serialize(allocator, config);
     defer allocator.free(content);
@@ -305,54 +415,62 @@ pub fn writeFile(allocator: std.mem.Allocator, config: *const Config, path: []co
     var tmp_name_buf: [256]u8 = undefined;
     const tmp_name = std.fmt.bufPrint(&tmp_name_buf, ".{s}.tmp", .{basename}) catch return error.NameTooLong;
 
-    var dir_fd = try std.fs.cwd().openDir(dir_path, .{});
-    defer dir_fd.close();
+    const cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(io, dir_path);
+    var dir_fd = try cwd.openDir(io, dir_path, .{});
+    defer dir_fd.close(io);
 
-    const tmp_file = try dir_fd.createFile(tmp_name, .{});
-    tmp_file.writeAll(content) catch |e| {
-        tmp_file.close();
-        return e;
-    };
-    tmp_file.close();
+    {
+        const tmp_file = try dir_fd.createFile(io, tmp_name, .{});
+        defer tmp_file.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var w = tmp_file.writer(io, &write_buf);
+        try w.interface.writeAll(content);
+        try w.interface.flush();
+    }
 
-    try dir_fd.rename(tmp_name, basename);
+    try dir_fd.rename(tmp_name, dir_fd, basename, io);
 }
 
-fn backupFile(allocator: std.mem.Allocator, source_path: []const u8, backup_dir: []const u8) !void {
-    std.fs.cwd().makePath(backup_dir) catch {};
+fn backupFile(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, backup_dir: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(io, backup_dir);
 
-    const source = std.fs.cwd().openFile(source_path, .{}) catch return;
-    defer source.close();
+    const content = cwd.readFileAlloc(io, source_path, allocator, .limited(1024 * 1024)) catch return;
+    defer allocator.free(content);
 
-    const ts = std.time.timestamp();
+    const ts = std.Io.Timestamp.now(io, .real).toSeconds();
     var name_buf: [256]u8 = undefined;
     const backup_name = std.fmt.bufPrint(&name_buf, "ssh_config_{d}", .{ts}) catch return;
 
     var path_buf: [512]u8 = undefined;
     const backup_path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ backup_dir, backup_name }) catch return;
 
-    const content = source.readToEndAlloc(allocator, 1024 * 1024) catch return;
-    defer allocator.free(content);
+    {
+        const dest = try cwd.createFile(io, backup_path, .{});
+        defer dest.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var w = dest.writer(io, &write_buf);
+        try w.interface.writeAll(content);
+        try w.interface.flush();
+    }
 
-    const dest = std.fs.cwd().createFile(backup_path, .{}) catch return;
-    defer dest.close();
-    dest.writeAll(content) catch {};
-
-    rotateBackups(allocator, backup_dir) catch {};
+    rotateBackups(allocator, io, backup_dir) catch {};
 }
 
-fn rotateBackups(allocator: std.mem.Allocator, backup_dir: []const u8) !void {
-    var dir = try std.fs.cwd().openDir(backup_dir, .{ .iterate = true });
-    defer dir.close();
+fn rotateBackups(allocator: std.mem.Allocator, io: std.Io, backup_dir: []const u8) !void {
+    const cwd = std.Io.Dir.cwd();
+    var dir = try cwd.openDir(io, backup_dir, .{ .iterate = true });
+    defer dir.close(io);
 
-    var entries: std.ArrayList([]const u8) = .{};
+    var entries: std.ArrayList([]const u8) = .empty;
     defer {
         for (entries.items) |name| allocator.free(@constCast(name));
         entries.deinit(allocator);
     }
 
     var it = dir.iterate();
-    while (try it.next()) |entry| {
+    while (try it.next(io)) |entry| {
         if (std.mem.startsWith(u8, entry.name, "ssh_config_")) {
             try entries.append(allocator, try allocator.dupe(u8, entry.name));
         }
@@ -368,11 +486,11 @@ fn rotateBackups(allocator: std.mem.Allocator, backup_dir: []const u8) !void {
 
     const to_delete = entries.items.len - 10;
     for (entries.items[0..to_delete]) |name| {
-        dir.deleteFile(name) catch {};
+        try dir.deleteFile(io, name);
     }
 }
 
-pub fn defaultConfigPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+pub fn defaultConfigPath(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {
+    const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(allocator, "{s}/.ssh/config", .{home});
 }

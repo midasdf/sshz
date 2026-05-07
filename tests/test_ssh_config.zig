@@ -162,15 +162,13 @@ test "remove all hosts" {
 }
 
 test "add then remove host" {
-    // Use page_allocator because addHost allocPrints new lines
-    // that aren't tracked for individual deallocation (by design—
-    // parsed lines are slices into original content, added lines are owned).
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     const content =
         \\Host existing
         \\    HostName 10.0.0.1
     ;
     var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
 
     // Add a new host
     try ssh_config.addHost(allocator, &config, .{
@@ -188,6 +186,7 @@ test "add then remove host" {
 
     // Serialize
     const output = try ssh_config.serialize(allocator, &config);
+    defer allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "newhost") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "existing") == null);
 }
@@ -258,12 +257,13 @@ test "parse invalid AddressFamily yields null" {
 }
 
 test "addHost with AddressFamily serializes correctly" {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     const content =
         \\Host existing
         \\    HostName 10.0.0.1
     ;
     var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
 
     try ssh_config.addHost(allocator, &config, .{
         .name = "v6host",
@@ -274,16 +274,18 @@ test "addHost with AddressFamily serializes correctly" {
     try std.testing.expectEqual(@as(usize, 2), config.hosts.len);
 
     const output = try ssh_config.serialize(allocator, &config);
+    defer allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "    AddressFamily inet6") != null);
 }
 
 test "addHost without AddressFamily omits directive" {
-    const allocator = std.heap.page_allocator;
+    const allocator = std.testing.allocator;
     const content =
         \\Host existing
         \\    HostName 10.0.0.1
     ;
     var config = try ssh_config.parse(allocator, content);
+    defer config.deinit(allocator);
 
     try ssh_config.addHost(allocator, &config, .{
         .name = "v4host",
@@ -291,6 +293,7 @@ test "addHost without AddressFamily omits directive" {
     });
 
     const output = try ssh_config.serialize(allocator, &config);
+    defer allocator.free(output);
     try std.testing.expect(std.mem.indexOf(u8, output, "AddressFamily") == null);
 }
 

@@ -72,7 +72,7 @@ pub fn render(form: *const FormState, ctx: *const zz.Context) ![]const u8 {
     const a = ctx.allocator;
 
     const title_text = if (form.editing_host != null) " Edit Host" else " Add Host";
-    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan());
+    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan);
     const title = try title_style.render(a, title_text);
 
     const dim = (zz.Style{}).fg(zz.Color.gray(12));
@@ -91,10 +91,10 @@ pub fn render(form: *const FormState, ctx: *const zz.Context) ![]const u8 {
         " Tags:          ",
     };
 
-    const label_style = (zz.Style{}).fg(zz.Color.white()).bold(true);
-    const focus_indicator = (zz.Style{}).fg(zz.Color.cyan()).bold(true);
+    const label_style = (zz.Style{}).fg(zz.Color.white).bold(true);
+    const focus_indicator = (zz.Style{}).fg(zz.Color.cyan).bold(true);
 
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(a);
     try lines.append(a, title);
     try lines.append(a, sep);

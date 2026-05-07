@@ -45,8 +45,8 @@ pub const MetaStore = struct {
         return self.entries.getPtr(name);
     }
 
-    pub fn recordConnection(self: *MetaStore, allocator: std.mem.Allocator, name: []const u8) !void {
-        const now = std.time.timestamp();
+    pub fn recordConnection(self: *MetaStore, allocator: std.mem.Allocator, io: std.Io, name: []const u8) !void {
+        const now = std.Io.Timestamp.now(io, .real).toSeconds();
         if (self.entries.getPtr(name)) |entry| {
             entry.last_connected = now;
             entry.connect_count += 1;
@@ -121,7 +121,7 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
             const name = try allocator.dupe(u8, entry.key_ptr.*);
             const obj = entry.value_ptr.object;
 
-            var tags_list: std.ArrayList([]const u8) = .{};
+            var tags_list: std.ArrayList([]const u8) = .empty;
             defer tags_list.deinit(allocator);
             if (obj.get("tags")) |tags_val| {
                 for (tags_val.array.items) |tag| {
@@ -129,7 +129,7 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
                 }
             }
 
-            var fwds_list: std.ArrayList(PortForward) = .{};
+            var fwds_list: std.ArrayList(PortForward) = .empty;
             defer fwds_list.deinit(allocator);
             if (obj.get("port_forwards")) |fwds_val| {
                 for (fwds_val.array.items) |fwd| {
@@ -157,8 +157,30 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
     return store;
 }
 
+/// Append a JSON string literal (including surrounding quotes) with proper
+/// escaping for `"`, `\`, and ASCII control characters.
+fn appendJsonString(buf: *std.ArrayList(u8), allocator: std.mem.Allocator, s: []const u8) !void {
+    try buf.append(allocator, '"');
+    for (s) |c| switch (c) {
+        '"' => try buf.appendSlice(allocator, "\\\""),
+        '\\' => try buf.appendSlice(allocator, "\\\\"),
+        '\n' => try buf.appendSlice(allocator, "\\n"),
+        '\r' => try buf.appendSlice(allocator, "\\r"),
+        '\t' => try buf.appendSlice(allocator, "\\t"),
+        0x08 => try buf.appendSlice(allocator, "\\b"),
+        0x0C => try buf.appendSlice(allocator, "\\f"),
+        0x00...0x07, 0x0B, 0x0E...0x1F => {
+            var hex_buf: [6]u8 = undefined;
+            const hex = std.fmt.bufPrint(&hex_buf, "\\u{x:0>4}", .{c}) catch unreachable;
+            try buf.appendSlice(allocator, hex);
+        },
+        else => try buf.append(allocator, c),
+    };
+    try buf.append(allocator, '"');
+}
+
 pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const u8 {
-    var buf: std.ArrayList(u8) = .{};
+    var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
 
     try buf.appendSlice(allocator, "{\n  \"version\": ");
@@ -172,15 +194,13 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
     while (it.next()) |entry| {
         if (!first) try buf.appendSlice(allocator, ",");
         first = false;
-        try buf.appendSlice(allocator, "\n    \"");
-        try buf.appendSlice(allocator, entry.key_ptr.*);
-        try buf.appendSlice(allocator, "\": {\n      \"tags\": [");
+        try buf.appendSlice(allocator, "\n    ");
+        try appendJsonString(&buf, allocator, entry.key_ptr.*);
+        try buf.appendSlice(allocator, ": {\n      \"tags\": [");
 
         for (entry.value_ptr.tags, 0..) |tag, i| {
             if (i > 0) try buf.appendSlice(allocator, ", ");
-            try buf.appendSlice(allocator, "\"");
-            try buf.appendSlice(allocator, tag);
-            try buf.appendSlice(allocator, "\"");
+            try appendJsonString(&buf, allocator, tag);
         }
 
         try buf.appendSlice(allocator, "],\n      \"last_connected\": ");
@@ -193,13 +213,13 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
 
         for (entry.value_ptr.port_forwards, 0..) |fwd, i| {
             if (i > 0) try buf.appendSlice(allocator, ", ");
-            try buf.appendSlice(allocator, "{\"type\": \"");
-            try buf.appendSlice(allocator, fwd.forward_type);
-            try buf.appendSlice(allocator, "\", \"bind\": \"");
-            try buf.appendSlice(allocator, fwd.bind);
-            try buf.appendSlice(allocator, "\", \"target\": \"");
-            try buf.appendSlice(allocator, fwd.target);
-            try buf.appendSlice(allocator, "\"}");
+            try buf.appendSlice(allocator, "{\"type\": ");
+            try appendJsonString(&buf, allocator, fwd.forward_type);
+            try buf.appendSlice(allocator, ", \"bind\": ");
+            try appendJsonString(&buf, allocator, fwd.bind);
+            try buf.appendSlice(allocator, ", \"target\": ");
+            try appendJsonString(&buf, allocator, fwd.target);
+            try buf.append(allocator, '}');
         }
 
         try buf.appendSlice(allocator, "]\n    }");
@@ -209,48 +229,50 @@ pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const
     return try buf.toOwnedSlice(allocator);
 }
 
-pub fn readFile(allocator: std.mem.Allocator, path: []const u8) !MetaStore {
-    const file = std.fs.cwd().openFile(path, .{}) catch |err| switch (err) {
+pub fn readFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !MetaStore {
+    const cwd = std.Io.Dir.cwd();
+    const content = cwd.readFileAlloc(io, path, allocator, .limited(1024 * 1024)) catch |err| switch (err) {
         error.FileNotFound => return MetaStore.initWith(allocator),
         else => return err,
     };
-    defer file.close();
-    const content = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(content);
     return parse(allocator, content) catch MetaStore.initWith(allocator);
 }
 
-pub fn writeFile(allocator: std.mem.Allocator, store: *const MetaStore, path: []const u8) !void {
+pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, store: *const MetaStore, path: []const u8) !void {
     const content = try serialize(allocator, store);
     defer allocator.free(content);
 
     const dir_path = std.fs.path.dirname(path) orelse ".";
     const basename = std.fs.path.basename(path);
 
-    std.fs.cwd().makePath(dir_path) catch {};
+    const cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(io, dir_path);
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_name = std.fmt.bufPrint(&tmp_buf, ".{s}.tmp", .{basename}) catch return error.NameTooLong;
 
-    var dir_fd = try std.fs.cwd().openDir(dir_path, .{});
-    defer dir_fd.close();
+    var dir_fd = try cwd.openDir(io, dir_path, .{});
+    defer dir_fd.close(io);
 
-    const tmp_file = try dir_fd.createFile(tmp_name, .{});
-    tmp_file.writeAll(content) catch |e| {
-        tmp_file.close();
-        return e;
-    };
-    tmp_file.close();
+    {
+        const tmp_file = try dir_fd.createFile(io, tmp_name, .{});
+        defer tmp_file.close(io);
+        var write_buf: [4096]u8 = undefined;
+        var w = tmp_file.writer(io, &write_buf);
+        try w.interface.writeAll(content);
+        try w.interface.flush();
+    }
 
-    try dir_fd.rename(tmp_name, basename);
+    try dir_fd.rename(tmp_name, dir_fd, basename, io);
 }
 
-pub fn defaultMetaPath(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+pub fn defaultMetaPath(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {
+    const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(allocator, "{s}/.config/sshz/meta.json", .{home});
 }
 
-pub fn defaultBackupDir(allocator: std.mem.Allocator) ![]const u8 {
-    const home = std.posix.getenv("HOME") orelse return error.NoHome;
+pub fn defaultBackupDir(allocator: std.mem.Allocator, env: *const std.process.Environ.Map) ![]const u8 {
+    const home = env.get("HOME") orelse return error.NoHome;
     return std.fmt.allocPrint(allocator, "{s}/.config/sshz/backups", .{home});
 }

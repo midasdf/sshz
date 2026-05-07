@@ -2,11 +2,12 @@
     .name = .sshz,
     .version = "0.1.0",
     .fingerprint = 0x138d7fea3306d410,
+    .minimum_zig_version = "0.16.0",
     .paths = .{ "build.zig", "build.zig.zon", "src" },
     .dependencies = .{
         .zigzag = .{
-            .url = "https://github.com/meszmate/zigzag/archive/refs/tags/v0.1.2.tar.gz",
-            .hash = "zigzag-0.1.0-YXwYS20gCwATYmA0IOAYQVHykNP--Dl7bKfp2UDE0K2I",
+            .url = "https://github.com/meszmate/zigzag/archive/refs/tags/v0.1.5.tar.gz",
+            .hash = "zigzag-0.1.2-YXwYS17aEQBlpxPETTrhY5leFh7vV0DpnXJbHogs4Lsv",
         },
     },
 }

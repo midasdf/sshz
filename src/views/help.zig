@@ -4,7 +4,7 @@ const zz = @import("zigzag");
 pub fn render(ctx: *const zz.Context) ![]const u8 {
     const a = ctx.allocator;
 
-    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan());
+    const title_style = (zz.Style{}).bold(true).fg(zz.Color.cyan);
     const key_style = (zz.Style{}).bold(true).fg(zz.Color.fromRgb(255, 200, 0));
     const dim = (zz.Style{}).fg(zz.Color.gray(15));
 
@@ -23,7 +23,7 @@ pub fn render(ctx: *const zz.Context) ![]const u8 {
         .{ "q              ", "Quit" },
     };
 
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(a);
 
     try lines.append(a, try title_style.render(a, " sshz Keybindings"));
@@ -43,7 +43,7 @@ pub fn render(ctx: *const zz.Context) ![]const u8 {
 
     return try (zz.Style{})
         .borderAll(zz.Border.rounded)
-        .borderForeground(zz.Color.cyan())
+        .borderForeground(zz.Color.cyan)
         .paddingAll(1)
         .width(@min(ctx.width -| 4, 50))
         .render(a, content);
