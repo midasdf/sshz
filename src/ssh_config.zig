@@ -76,10 +76,10 @@ fn startsWithIgnoreCase(haystack: []const u8, needle: []const u8) bool {
 }
 
 pub fn parse(allocator: std.mem.Allocator, content: []const u8) !Config {
-    var hosts: std.ArrayList(Host) = .{};
+    var hosts: std.ArrayList(Host) = .empty;
     defer hosts.deinit(allocator);
 
-    var lines_list: std.ArrayList([]const u8) = .{};
+    var lines_list: std.ArrayList([]const u8) = .empty;
     defer lines_list.deinit(allocator);
 
     var line_iter = std.mem.splitScalar(u8, content, '\n');
@@ -197,7 +197,7 @@ fn setHostField(h: *Host, key: []const u8, value: []const u8) void {
 }
 
 pub fn serialize(allocator: std.mem.Allocator, config: *const Config) ![]const u8 {
-    var result: std.ArrayList(u8) = .{};
+    var result: std.ArrayList(u8) = .empty;
     defer result.deinit(allocator);
 
     for (config.raw_lines) |line| {
@@ -209,7 +209,7 @@ pub fn serialize(allocator: std.mem.Allocator, config: *const Config) ![]const u
 }
 
 pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void {
-    var new_lines: std.ArrayList([]const u8) = .{};
+    var new_lines: std.ArrayList([]const u8) = .empty;
     defer new_lines.deinit(allocator);
     for (config.raw_lines) |l| try new_lines.append(allocator, l);
     try new_lines.append(allocator, "");
@@ -242,7 +242,7 @@ pub fn addHost(allocator: std.mem.Allocator, config: *Config, host: Host) !void 
     allocator.free(config.raw_lines);
     config.raw_lines = try new_lines.toOwnedSlice(allocator);
 
-    var new_hosts: std.ArrayList(Host) = .{};
+    var new_hosts: std.ArrayList(Host) = .empty;
     defer new_hosts.deinit(allocator);
     for (config.hosts) |h| try new_hosts.append(allocator, h);
     var new_host = host;
@@ -260,7 +260,7 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
     const start = host.start_line;
     const end = @min(host.end_line, config.raw_lines.len);
 
-    var new_lines: std.ArrayList([]const u8) = .{};
+    var new_lines: std.ArrayList([]const u8) = .empty;
     defer new_lines.deinit(allocator);
     for (config.raw_lines, 0..) |line, i| {
         if (i >= start and i < end) continue;
@@ -270,7 +270,7 @@ pub fn removeHost(allocator: std.mem.Allocator, config: *Config, index: usize) !
     config.raw_lines = try new_lines.toOwnedSlice(allocator);
 
     const removed_count = end - start;
-    var new_hosts: std.ArrayList(Host) = .{};
+    var new_hosts: std.ArrayList(Host) = .empty;
     defer new_hosts.deinit(allocator);
     for (config.hosts, 0..) |h, i| {
         if (i == index) continue;
@@ -351,7 +351,7 @@ fn rotateBackups(allocator: std.mem.Allocator, io: std.Io, backup_dir: []const u
     var dir = try cwd.openDir(io, backup_dir, .{ .iterate = true });
     defer dir.close(io);
 
-    var entries: std.ArrayList([]const u8) = .{};
+    var entries: std.ArrayList([]const u8) = .empty;
     defer {
         for (entries.items) |name| allocator.free(@constCast(name));
         entries.deinit(allocator);

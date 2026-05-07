@@ -13,7 +13,7 @@ pub const ForwardState = struct {
     selected: usize = 0,
 
     pub fn init(allocator: std.mem.Allocator, host_name: []const u8, forwards: []const meta_mod.PortForward) ForwardState {
-        var entries: std.ArrayList(ForwardEntry) = .{};
+        var entries: std.ArrayList(ForwardEntry) = .empty;
         for (forwards) |fwd| {
             entries.append(allocator, .{ .forward = fwd }) catch {};
         }
@@ -51,7 +51,7 @@ pub fn render(state: *const ForwardState, ctx: *const zz.Context) ![]const u8 {
     @memset(sep_chars, '-');
     const sep = try dim.render(a, sep_chars);
 
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(a);
     try lines.append(a, title_rendered);
     try lines.append(a, sep);

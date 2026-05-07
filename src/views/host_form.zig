@@ -94,7 +94,7 @@ pub fn render(form: *const FormState, ctx: *const zz.Context) ![]const u8 {
     const label_style = (zz.Style{}).fg(zz.Color.white).bold(true);
     const focus_indicator = (zz.Style{}).fg(zz.Color.cyan).bold(true);
 
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(a);
     try lines.append(a, title);
     try lines.append(a, sep);

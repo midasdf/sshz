@@ -88,7 +88,7 @@ fn directConnect(allocator: std.mem.Allocator, io: std.Io, env: *const std.proce
     meta_mod.writeFile(allocator, io, &store, meta_path) catch {};
 
     // Build args
-    var argv: std.ArrayList([]const u8) = .{};
+    var argv: std.ArrayList([]const u8) = .empty;
     defer argv.deinit(allocator);
 
     try argv.append(allocator, "ssh");

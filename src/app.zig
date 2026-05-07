@@ -81,7 +81,7 @@ pub const Model = struct {
         self.rebuildHostList();
 
         // Status checker
-        self.result_queue = checker_mod.ResultQueue.init(self.pa);
+        self.result_queue = checker_mod.ResultQueue.init(self.pa, self.io);
         self.status_checker = checker_mod.StatusChecker.init(&self.result_queue, self.pa, self.io);
         self.startStatusChecks();
         self.collectTags();
@@ -113,7 +113,7 @@ pub const Model = struct {
     }
 
     fn startStatusChecks(self: *Model) void {
-        var requests: std.ArrayList(checker_mod.CheckRequest) = .{};
+        var requests: std.ArrayList(checker_mod.CheckRequest) = .empty;
         defer requests.deinit(self.pa);
 
         for (self.hosts.items, 0..) |entry, i| {
@@ -454,7 +454,7 @@ pub const Model = struct {
 
         // Save tags
         if (tags_val.len > 0) {
-            var tags: std.ArrayList([]const u8) = .{};
+            var tags: std.ArrayList([]const u8) = .empty;
             defer tags.deinit(self.pa);
             var tag_it = std.mem.splitScalar(u8, tags_val, ',');
             while (tag_it.next()) |tag| {

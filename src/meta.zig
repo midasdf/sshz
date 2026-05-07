@@ -121,7 +121,7 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
             const name = try allocator.dupe(u8, entry.key_ptr.*);
             const obj = entry.value_ptr.object;
 
-            var tags_list: std.ArrayList([]const u8) = .{};
+            var tags_list: std.ArrayList([]const u8) = .empty;
             defer tags_list.deinit(allocator);
             if (obj.get("tags")) |tags_val| {
                 for (tags_val.array.items) |tag| {
@@ -129,7 +129,7 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
                 }
             }
 
-            var fwds_list: std.ArrayList(PortForward) = .{};
+            var fwds_list: std.ArrayList(PortForward) = .empty;
             defer fwds_list.deinit(allocator);
             if (obj.get("port_forwards")) |fwds_val| {
                 for (fwds_val.array.items) |fwd| {
@@ -158,7 +158,7 @@ pub fn parse(allocator: std.mem.Allocator, content: []const u8) !MetaStore {
 }
 
 pub fn serialize(allocator: std.mem.Allocator, store: *const MetaStore) ![]const u8 {
-    var buf: std.ArrayList(u8) = .{};
+    var buf: std.ArrayList(u8) = .empty;
     defer buf.deinit(allocator);
 
     try buf.appendSlice(allocator, "{\n  \"version\": ");

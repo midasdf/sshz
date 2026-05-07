@@ -34,7 +34,7 @@ pub fn render(model: *const App.Model, ctx: *const zz.Context) ![]const u8 {
     const separator = try dim.render(a, sep_chars);
 
     // Build lines
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(a);
     try lines.append(a, header);
     try lines.append(a, separator);
@@ -157,7 +157,7 @@ fn renderHostLine(a: std.mem.Allocator, entry: App.HostEntry, is_selected: bool,
     var tags_str: []const u8 = "";
     if (entry.meta) |m| {
         if (m.tags.len > 0) {
-            var tag_buf: std.ArrayList(u8) = .{};
+            var tag_buf: std.ArrayList(u8) = .empty;
             defer tag_buf.deinit(a);
             try tag_buf.appendSlice(a, "[");
             for (m.tags, 0..) |tag, j| {

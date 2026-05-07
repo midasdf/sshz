@@ -23,7 +23,7 @@ pub fn render(ctx: *const zz.Context) ![]const u8 {
         .{ "q              ", "Quit" },
     };
 
-    var lines: std.ArrayList([]const u8) = .{};
+    var lines: std.ArrayList([]const u8) = .empty;
     defer lines.deinit(a);
 
     try lines.append(a, try title_style.render(a, " sshz Keybindings"));
