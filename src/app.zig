@@ -484,8 +484,10 @@ pub const Model = struct {
     fn saveForm(self: *Model) void {
         const form = &(self.form_state orelse return);
 
-        // IMPORTANT: dupe values before form deinit
-        const name = self.pa.dupe(u8, form.getValue(.name)) catch return;
+        // The form values stay valid until handleFormKey calls form.deinit
+        // after saveForm returns. ssh_config.addHost / meta_store.setTags
+        // both deep-copy what they need, so we can pass form-owned slices.
+        const name = form.getValue(.name);
         if (name.len == 0) return;
 
         const hostname_val = form.getValue(.hostname);
@@ -498,11 +500,11 @@ pub const Model = struct {
 
         const new_host = ssh_config.Host{
             .name = name,
-            .hostname = if (hostname_val.len > 0) (self.pa.dupe(u8, hostname_val) catch null) else null,
-            .user = if (user_val.len > 0) (self.pa.dupe(u8, user_val) catch null) else null,
+            .hostname = if (hostname_val.len > 0) hostname_val else null,
+            .user = if (user_val.len > 0) user_val else null,
             .port = if (port_val.len > 0) std.fmt.parseInt(u16, port_val, 10) catch null else null,
-            .identity_file = if (identity_val.len > 0) (self.pa.dupe(u8, identity_val) catch null) else null,
-            .proxy_jump = if (proxy_val.len > 0) (self.pa.dupe(u8, proxy_val) catch null) else null,
+            .identity_file = if (identity_val.len > 0) identity_val else null,
+            .proxy_jump = if (proxy_val.len > 0) proxy_val else null,
             .address_family = if (addr_family_val.len > 0) ssh_config.AddressFamily.fromString(addr_family_val) else null,
         };
 
