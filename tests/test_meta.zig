@@ -23,7 +23,7 @@ test "record connection creates new host entry" {
     var store = meta.MetaStore.initWith(allocator);
     defer store.deinit(allocator);
 
-    try store.recordConnection(allocator, "newhost");
+    try store.recordConnection(allocator, std.testing.io, "newhost");
 
     const host = store.getHost("newhost");
     try std.testing.expect(host != null);
@@ -36,8 +36,8 @@ test "record connection increments existing count" {
     var store = meta.MetaStore.initWith(allocator);
     defer store.deinit(allocator);
 
-    try store.recordConnection(allocator, "host1");
-    try store.recordConnection(allocator, "host1");
+    try store.recordConnection(allocator, std.testing.io, "host1");
+    try store.recordConnection(allocator, std.testing.io, "host1");
 
     const host = store.getHost("host1");
     try std.testing.expectEqual(@as(u32, 2), host.?.connect_count);
@@ -48,7 +48,7 @@ test "serialize and parse round-trip" {
     var store = meta.MetaStore.initWith(allocator);
     defer store.deinit(allocator);
 
-    try store.recordConnection(allocator, "roundtrip");
+    try store.recordConnection(allocator, std.testing.io, "roundtrip");
     const tags = [_][]const u8{ "dev", "local" };
     try store.setTags(allocator, "roundtrip", &tags);
 

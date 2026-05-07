@@ -63,9 +63,9 @@ pub const Model = struct {
         self.io = ctx.io;
         self.env = ctx.environ_map;
 
-        self.hosts = .{};
-        self.search_text = .{};
-        self.all_tags = .{};
+        self.hosts = .empty;
+        self.search_text = .empty;
+        self.all_tags = .empty;
 
         // Load config
         self.config_path = ssh_config.defaultConfigPath(self.pa, self.env) catch "/dev/null";
@@ -139,7 +139,10 @@ pub const Model = struct {
             for (entry.value_ptr.tags) |tag| {
                 var found = false;
                 for (self.all_tags.items) |existing| {
-                    if (std.mem.eql(u8, existing, tag)) { found = true; break; }
+                    if (std.mem.eql(u8, existing, tag)) {
+                        found = true;
+                        break;
+                    }
                 }
                 if (!found) self.all_tags.append(self.pa, tag) catch {};
             }
@@ -187,7 +190,9 @@ pub const Model = struct {
         if (self.screen == .help) {
             switch (k.key) {
                 .escape => self.screen = .list,
-                .char => |c| if (c == '?') { self.screen = .list; },
+                .char => |c| if (c == '?') {
+                    self.screen = .list;
+                },
                 else => {},
             }
             return .none;
@@ -478,7 +483,10 @@ pub const Model = struct {
         var display_i: usize = 0;
         for (self.config.hosts, 0..) |h, ci| {
             if (h.is_wildcard) continue;
-            if (display_i == self.selected) { config_index = ci; break; }
+            if (display_i == self.selected) {
+                config_index = ci;
+                break;
+            }
             display_i += 1;
         }
 

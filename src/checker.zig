@@ -155,7 +155,7 @@ pub const StatusChecker = struct {
 
 fn tcpCheck(io: std.Io, hostname: []const u8, port: u16) HostStatus {
     const host = std.Io.net.HostName.init(hostname) catch return .offline;
-    const stream = host.connect(io, port, .{}) catch return .offline;
+    const stream = host.connect(io, port, .{ .mode = .stream }) catch return .offline;
     stream.close(io);
     return .online;
 }
