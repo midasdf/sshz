@@ -327,7 +327,7 @@ fn backupFile(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8,
     const content = cwd.readFileAlloc(io, source_path, allocator, .limited(1024 * 1024)) catch return;
     defer allocator.free(content);
 
-    const ts = std.time.timestamp();
+    const ts = std.Io.Timestamp.now(io, .real).toSeconds();
     var name_buf: [256]u8 = undefined;
     const backup_name = std.fmt.bufPrint(&name_buf, "ssh_config_{d}", .{ts}) catch return;
 

@@ -398,7 +398,7 @@ pub const Model = struct {
     fn connectToSelected(self: *Model) void {
         if (self.selected >= self.hosts.items.len) return;
         const entry = self.hosts.items[self.selected];
-        self.meta_store.recordConnection(self.pa, entry.config.name) catch {};
+        self.meta_store.recordConnection(self.pa, self.io, entry.config.name) catch {};
         meta_mod.writeFile(self.pa, self.io, &self.meta_store, self.meta_path) catch {};
         self.connect_host = self.pa.dupe(u8, entry.config.name) catch null;
     }

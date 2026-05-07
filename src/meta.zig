@@ -45,8 +45,8 @@ pub const MetaStore = struct {
         return self.entries.getPtr(name);
     }
 
-    pub fn recordConnection(self: *MetaStore, allocator: std.mem.Allocator, name: []const u8) !void {
-        const now = std.time.timestamp();
+    pub fn recordConnection(self: *MetaStore, allocator: std.mem.Allocator, io: std.Io, name: []const u8) !void {
+        const now = std.Io.Timestamp.now(io, .real).toSeconds();
         if (self.entries.getPtr(name)) |entry| {
             entry.last_connected = now;
             entry.connect_count += 1;

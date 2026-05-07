@@ -18,9 +18,9 @@ pub fn relativeTime(seconds_ago: i64, buf: *[32]u8) []const u8 {
     }
 }
 
-pub fn relativeTimeFromTimestamp(timestamp: i64, buf: *[32]u8) []const u8 {
+pub fn relativeTimeFromTimestamp(io: std.Io, timestamp: i64, buf: *[32]u8) []const u8 {
     if (timestamp == 0) return "never";
-    const now = std.time.timestamp();
+    const now = std.Io.Timestamp.now(io, .real).toSeconds();
     const diff = now - timestamp;
     if (diff < 0) return "future";
     return relativeTime(diff, buf);

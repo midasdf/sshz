@@ -84,7 +84,7 @@ fn directConnect(allocator: std.mem.Allocator, io: std.Io, env: *const std.proce
     var store = try meta_mod.readFile(allocator, io, meta_path);
     defer store.deinit(allocator);
 
-    try store.recordConnection(allocator, host_name);
+    try store.recordConnection(allocator, io, host_name);
     meta_mod.writeFile(allocator, io, &store, meta_path) catch {};
 
     // Build args

@@ -53,7 +53,7 @@ pub fn render(model: *const App.Model, ctx: *const zz.Context) ![]const u8 {
         }
 
         const is_selected = (display_idx == model.selected);
-        const line = try renderHostLine(a, entry, is_selected, w);
+        const line = try renderHostLine(a, ctx.io, entry, is_selected, w);
         try lines.append(a, line);
         display_idx += 1;
     }
@@ -125,7 +125,7 @@ fn hasTag(entry: App.HostEntry, tag: []const u8) bool {
     return false;
 }
 
-fn renderHostLine(a: std.mem.Allocator, entry: App.HostEntry, is_selected: bool, width: u16) ![]const u8 {
+fn renderHostLine(a: std.mem.Allocator, io: std.Io, entry: App.HostEntry, is_selected: bool, width: u16) ![]const u8 {
     // Status indicator
     const StatusInfo = struct { sym: []const u8, color: zz.Color };
     const status_info: StatusInfo = switch (entry.status) {
@@ -172,7 +172,7 @@ fn renderHostLine(a: std.mem.Allocator, entry: App.HostEntry, is_selected: bool,
     // Last connected
     var time_buf: [32]u8 = undefined;
     const last_time = if (entry.meta) |m|
-        utils.relativeTimeFromTimestamp(m.last_connected, &time_buf)
+        utils.relativeTimeFromTimestamp(io, m.last_connected, &time_buf)
     else
         "never";
 
