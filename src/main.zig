@@ -26,7 +26,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // sshz <host> [command...] — direct connect
-    if (args.len >= 2 and args[1][0] != '-') {
+    if (args.len >= 2 and args[1].len > 0 and args[1][0] != '-') {
         try directConnect(allocator, init.io, init.environ_map, args[1], args[2..]);
         return;
     }

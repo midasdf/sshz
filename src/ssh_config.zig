@@ -305,6 +305,7 @@ pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, config: *const Config
     const tmp_name = std.fmt.bufPrint(&tmp_name_buf, ".{s}.tmp", .{basename}) catch return error.NameTooLong;
 
     const cwd = std.Io.Dir.cwd();
+    try cwd.createDirPath(io, dir_path);
     var dir_fd = try cwd.openDir(io, dir_path, .{});
     defer dir_fd.close(io);
 
@@ -322,7 +323,7 @@ pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, config: *const Config
 
 fn backupFile(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8, backup_dir: []const u8) !void {
     const cwd = std.Io.Dir.cwd();
-    cwd.createDirPath(io, backup_dir) catch {};
+    try cwd.createDirPath(io, backup_dir);
 
     const content = cwd.readFileAlloc(io, source_path, allocator, .limited(1024 * 1024)) catch return;
     defer allocator.free(content);
@@ -335,12 +336,12 @@ fn backupFile(allocator: std.mem.Allocator, io: std.Io, source_path: []const u8,
     const backup_path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ backup_dir, backup_name }) catch return;
 
     {
-        const dest = cwd.createFile(io, backup_path, .{}) catch return;
+        const dest = try cwd.createFile(io, backup_path, .{});
         defer dest.close(io);
         var write_buf: [4096]u8 = undefined;
         var w = dest.writer(io, &write_buf);
-        w.interface.writeAll(content) catch return;
-        w.interface.flush() catch return;
+        try w.interface.writeAll(content);
+        try w.interface.flush();
     }
 
     rotateBackups(allocator, io, backup_dir) catch {};
@@ -374,7 +375,7 @@ fn rotateBackups(allocator: std.mem.Allocator, io: std.Io, backup_dir: []const u
 
     const to_delete = entries.items.len - 10;
     for (entries.items[0..to_delete]) |name| {
-        dir.deleteFile(io, name) catch {};
+        try dir.deleteFile(io, name);
     }
 }
 

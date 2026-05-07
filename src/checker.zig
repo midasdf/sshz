@@ -82,7 +82,10 @@ pub const StatusChecker = struct {
 
     fn joinAllThreads(self: *StatusChecker) void {
         self.threads_mutex.lockUncancelable(self.io);
-        const threads = self.threads.toOwnedSlice(self.allocator) catch return;
+        const threads = self.threads.toOwnedSlice(self.allocator) catch {
+            self.threads_mutex.unlock(self.io);
+            return;
+        };
         self.threads_mutex.unlock(self.io);
         for (threads) |t| t.join();
         self.allocator.free(threads);
@@ -154,6 +157,14 @@ pub const StatusChecker = struct {
 };
 
 fn tcpCheck(io: std.Io, hostname: []const u8, port: u16) HostStatus {
+    // Try IPv4/IPv6 literals first; HostName.init rejects ':' so a bare IPv6
+    // address would otherwise always report offline.
+    if (std.Io.net.IpAddress.parse(hostname, port)) |addr| {
+        const stream = addr.connect(io, .{ .mode = .stream }) catch return .offline;
+        stream.close(io);
+        return .online;
+    } else |_| {}
+
     const host = std.Io.net.HostName.init(hostname) catch return .offline;
     const stream = host.connect(io, port, .{ .mode = .stream }) catch return .offline;
     stream.close(io);

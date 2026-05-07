@@ -227,7 +227,7 @@ pub fn writeFile(allocator: std.mem.Allocator, io: std.Io, store: *const MetaSto
     const basename = std.fs.path.basename(path);
 
     const cwd = std.Io.Dir.cwd();
-    cwd.createDirPath(io, dir_path) catch {};
+    try cwd.createDirPath(io, dir_path);
 
     var tmp_buf: [256]u8 = undefined;
     const tmp_name = std.fmt.bufPrint(&tmp_buf, ".{s}.tmp", .{basename}) catch return error.NameTooLong;
