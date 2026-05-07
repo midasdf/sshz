@@ -1,6 +1,6 @@
 .{
     .name = .sshz,
-    .version = "0.1.0",
+    .version = "1.1.0",
     .fingerprint = 0x138d7fea3306d410,
     .minimum_zig_version = "0.16.0",
     .paths = .{ "build.zig", "build.zig.zon", "src" },

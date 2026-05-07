@@ -28,7 +28,7 @@ A lightweight SSH connection manager with a beautiful TUI, written in Zig.
 
 ### Install Zig
 
-sshz requires Zig 0.15.0+. Choose one of the following methods:
+sshz requires Zig 0.16.0+. Choose one of the following methods:
 
 **Download from ziglang.org (all platforms):**
 
@@ -191,8 +191,8 @@ Built with [ZigZag](https://github.com/meszmate/zigzag) TUI framework.
 
 | Metric | Value |
 |--------|-------|
-| Binary size (x86_64) | ~288 KB |
-| Binary size (aarch64) | ~261 KB |
+| Binary size (x86_64) | ~381 KB |
+| Binary size (aarch64) | ~348 KB |
 | Dependencies | Zero (static binary) |
 
 ## License
@@ -200,4 +200,4 @@ Built with [ZigZag](https://github.com/meszmate/zigzag) TUI framework.
 [MIT](LICENSE)
 
 ## Disclaimer
-This project uses AI-generated code (LLM). I do my best to review and test it, but I can't guarantee it's perfect. Please use it at your own risk.\n
+This project uses AI-generated code (LLM). I do my best to review and test it, but I can't guarantee it's perfect. Please use it at your own risk.

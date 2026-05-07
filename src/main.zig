@@ -3,7 +3,7 @@ const zz = @import("zigzag");
 const meta_mod = @import("meta");
 const app = @import("app");
 
-const version = "0.1.0";
+const version = "1.1.0";
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
